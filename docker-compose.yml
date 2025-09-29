@@ -1,0 +1,14 @@
+services:
+  bg-remover:
+    build: .
+    image: exactsports/bg-remover:latest
+    env_file: .env
+    ports:
+      - "7000:7000"
+    restart: unless-stopped
+    # GPU note: if you add a GPU build (see below), uncomment:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - capabilities: [gpu]
