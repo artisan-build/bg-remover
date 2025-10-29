@@ -1,0 +1,28 @@
+FROM alpine:3.19
+
+WORKDIR /app
+
+# Install ALL OpenCV dependencies
+RUN apk add --no-cache \
+    g++ \
+    make \
+    pkgconfig \
+    opencv \
+    opencv-dev
+
+# Copy source file
+COPY bg-remover.cpp .
+COPY Makefile .
+
+# Build the binary
+RUN make
+
+# Show what we built and its dependencies
+RUN echo "Binary info:" && \
+    ls -lh bg-remover && \
+    file bg-remover && \
+    echo "" && \
+    echo "Dependencies:" && \
+    ldd bg-remover
+
+CMD ["sh"]
