@@ -1,0 +1,175 @@
+name: Build Multi-Platform Binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v1.0.0)'
+        required: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - platform: alpine
+            runner: ubuntu-latest
+            dockerfile: Dockerfile.alpine
+            output: bg-remover-alpine-x86_64
+            
+          - platform: ubuntu
+            runner: ubuntu-latest
+            dockerfile: Dockerfile.ubuntu
+            output: bg-remover-ubuntu-x86_64
+            
+          - platform: macos
+            runner: macos-latest
+            output: bg-remover-macos-universal
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      # Linux builds (Alpine & Ubuntu) via Docker
+      - name: Build ${{ matrix.platform }} binary (Docker)
+        if: matrix.platform != 'macos'
+        run: |
+          docker build -f ${{ matrix.dockerfile }} -t bg-remover-${{ matrix.platform }} .
+          docker create --name extract bg-remover-${{ matrix.platform }}
+          docker cp extract:/app/bg-remover ./${{ matrix.output }}
+          docker rm extract
+      
+      # macOS build (native)
+      - name: Install OpenCV (macOS)
+        if: matrix.platform == 'macos'
+        run: |
+          brew install opencv pkg-config
+      
+      - name: Build macOS universal binary
+        if: matrix.platform == 'macos'
+        run: |
+          # Build for both architectures
+          g++ -std=c++11 -O3 -Wall \
+            -arch arm64 -arch x86_64 \
+            src/bg-remover.cpp \
+            -o ${{ matrix.output }} \
+            $(pkg-config --cflags --libs opencv4)
+          strip ${{ matrix.output }}
+      
+      # Verify binary
+      - name: Verify binary
+        run: |
+          ls -lh ${{ matrix.output }}
+          file ${{ matrix.output }}
+          chmod +x ${{ matrix.output }}
+      
+      # Generate checksum
+      - name: Generate SHA256 checksum
+        run: |
+          shasum -a 256 ${{ matrix.output }} > ${{ matrix.output }}.sha256
+          cat ${{ matrix.output }}.sha256
+      
+      # Upload artifacts
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.output }}
+          path: |
+            ${{ matrix.output }}
+            ${{ matrix.output }}.sha256
+  
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      # Download all artifacts
+      - name: Download Alpine binary
+        uses: actions/download-artifact@v3
+        with:
+          name: bg-remover-alpine-x86_64
+          path: ./dist
+      
+      - name: Download Ubuntu binary
+        uses: actions/download-artifact@v3
+        with:
+          name: bg-remover-ubuntu-x86_64
+          path: ./dist
+      
+      - name: Download macOS binary
+        uses: actions/download-artifact@v3
+        with:
+          name: bg-remover-macos-universal
+          path: ./dist
+      
+      # Create combined checksums file
+      - name: Create checksums.txt
+        run: |
+          cd dist
+          cat *.sha256 > checksums.txt
+          echo "=== Checksums ==="
+          cat checksums.txt
+      
+      # Create GitHub Release
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            dist/bg-remover-alpine-x86_64
+            dist/bg-remover-ubuntu-x86_64
+            dist/bg-remover-macos-universal
+            dist/checksums.txt
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          body: |
+            ## BG Remover ${{ github.ref_name }}
+            
+            Multi-platform background removal binaries using OpenCV GrabCut algorithm.
+            
+            ### Downloads
+            
+            | Platform | Binary | Use Case |
+            |----------|--------|----------|
+            | Alpine Linux | `bg-remover-alpine-x86_64` | Laravel Vapor |
+            | Ubuntu | `bg-remover-ubuntu-x86_64` | Laravel Forge |
+            | macOS | `bg-remover-macos-universal` | Development (ARM64 + Intel) |
+            
+            ### Installation
+            
+            ```bash
+            # Download for your platform
+            wget https://github.com/artisan-build/bg-remover/releases/download/${{ github.ref_name }}/bg-remover-alpine-x86_64
+            
+            # Verify checksum
+            wget https://github.com/artisan-build/bg-remover/releases/download/${{ github.ref_name }}/checksums.txt
+            sha256sum -c checksums.txt
+            
+            # Make executable
+            chmod +x bg-remover-alpine-x86_64
+            
+            # Run
+            ./bg-remover-alpine-x86_64 -i input.jpg -o output.png
+            ```
+            
+            ### Checksums
+            
+            See `checksums.txt` for SHA256 verification hashes.
+            
+            ### Documentation
+            
+            - [README](https://github.com/artisan-build/bg-remover#readme) - Quick start and usage
+            - [INTEGRATION.md](https://github.com/artisan-build/bg-remover/blob/main/INTEGRATION.md) - Integration examples
+            - [FORKING.md](https://github.com/artisan-build/bg-remover/blob/main/FORKING.md) - Community platform support
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
