@@ -151,11 +151,30 @@ make TARGET=alpine LINK_MODE=static
 make clean
 ```
 
-## Unsupported Platforms
+## Community-Maintained Platform Builds
 
 Need bg-remover on Windows, ARM Linux, or another platform we don't officially support?
 
-See [FORKING.md](FORKING.md) for guidance on creating and maintaining your own platform builds. We maintain builds only for platforms we actively use, but the community is welcome to fork for additional platforms.
+See [FORKING.md](FORKING.md) for a complete guide on creating and maintaining your own platform builds. We maintain builds only for platforms we actively use (Alpine, Ubuntu, macOS), but the community is welcome to fork for additional platforms.
+
+### How It Works
+
+1. Fork this repository
+2. Create a Dockerfile for your platform
+3. Test and release binaries
+4. Submit a PR to add your fork to the list below
+
+### Community Forks
+
+_No community forks yet. Be the first! See [FORKING.md](FORKING.md) to get started._
+
+<!-- 
+When adding forks, use this format:
+
+| Platform | Maintainer | Repository | Status |
+|----------|------------|------------|--------|
+| Windows (x86_64) | [@username](https://github.com/username) | [username/bg-remover](https://github.com/username/bg-remover) | Active |
+-->
 
 ## Technical Details
 
