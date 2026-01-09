@@ -29,7 +29,7 @@ jobs:
             
           - platform: macos
             runner: macos-latest
-            output: bg-remover-macos-universal
+            output: bg-remover-macos-arm64
     
     steps:
       - name: Checkout code
@@ -50,12 +50,11 @@ jobs:
         run: |
           brew install opencv pkg-config
       
-      - name: Build macOS universal binary
+      - name: Build macOS ARM64 binary
         if: matrix.platform == 'macos'
         run: |
-          # Build for both architectures
+          # Build for ARM64 (Apple Silicon)
           g++ -std=c++11 -O3 -Wall \
-            -arch arm64 -arch x86_64 \
             src/bg-remover.cpp \
             -o ${{ matrix.output }} \
             $(pkg-config --cflags --libs opencv4)
@@ -109,7 +108,7 @@ jobs:
       - name: Download macOS binary
         uses: actions/download-artifact@v4
         with:
-          name: bg-remover-macos-universal
+          name: bg-remover-macos-arm64
           path: ./dist
       
       # Create combined checksums file
@@ -127,7 +126,7 @@ jobs:
           files: |
             dist/bg-remover-alpine-x86_64
             dist/bg-remover-ubuntu-x86_64
-            dist/bg-remover-macos-universal
+            dist/bg-remover-macos-arm64
             dist/checksums.txt
           draft: false
           prerelease: false
@@ -143,7 +142,7 @@ jobs:
             |----------|--------|----------|
             | Alpine Linux | `bg-remover-alpine-x86_64` | Laravel Vapor |
             | Ubuntu | `bg-remover-ubuntu-x86_64` | Laravel Forge |
-            | macOS | `bg-remover-macos-universal` | Development (ARM64 + Intel) |
+            | macOS | `bg-remover-macos-arm64` | Development (Apple Silicon) |
             
             ### Installation
             
