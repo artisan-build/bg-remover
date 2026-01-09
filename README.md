@@ -85,6 +85,17 @@ subprocess.run(["./bg-remover", "-i", "input.jpg", "-o", "output.png"], check=Tr
 - Memory usage: ~3-4x input file size in RAM
 - Best results with single subjects on contrasting backgrounds
 
+## Dependencies
+
+This software uses the following open source packages:
+
+- [OpenCV](https://opencv.org/) - Apache 2.0 License
+  - Used for image processing and background removal algorithms
+  - Must be installed separately (see Requirements section)
+  - License: https://opencv.org/license/
+
 ## License
 
-See LICENSE file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+OpenCV is licensed under the Apache 2.0 License, which is compatible with the MIT License used for this project.
