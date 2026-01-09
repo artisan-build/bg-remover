@@ -1,17 +1,19 @@
-FROM alpine:3.19
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /app
 
-# Install ALL OpenCV dependencies
-RUN apk add --no-cache \
+# Install OpenCV and build tools
+RUN apt-get update && apt-get install -y \
     g++ \
     make \
-    pkgconfig \
-    opencv \
-    opencv-dev
+    pkg-config \
+    libopencv-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy source file
-COPY bg-remover.cpp .
+COPY src/bg-remover.cpp src/
 COPY Makefile .
 
 # Build the binary
@@ -25,4 +27,4 @@ RUN echo "Binary info:" && \
     echo "Dependencies:" && \
     ldd bg-remover
 
-CMD ["sh"]
+CMD ["bash"]
