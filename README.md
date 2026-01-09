@@ -227,5 +227,5 @@ OpenCV is licensed under the Apache 2.0 License, which is compatible with the MI
 ## Contributing
 
 - Binary issues/features: Open in this repository
-- Laravel package issues: Open in [artisan-build/scalpels](https://github.com/artisan-build/scalpels)
+- Laravel package issues: Open in [artisan-build/scalpels.app](https://github.com/artisan-build/scalpels.app)
 - Community platform builds: See [FORKING.md](FORKING.md)
