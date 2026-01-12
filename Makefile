@@ -2,7 +2,7 @@
 # Supports multiple build targets and linking modes
 
 CXX = g++
-CXXFLAGS = -std=c++11 -O3 -Wall
+CXXFLAGS = -std=c++14 -O3 -Wall
 OPENCV_FLAGS = `pkg-config --cflags --libs opencv4`
 BINARY = bg-remover
 SOURCE = src/bg-remover.cpp
