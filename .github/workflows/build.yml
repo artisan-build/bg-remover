@@ -143,15 +143,17 @@ jobs:
           body: |
             ## BG Remover ${{ steps.version.outputs.tag }}
 
-            Multi-platform background removal binaries with **ML support enabled on all platforms**. Use optimized OpenCV GrabCut by default, or switch to deep learning models (U2-Net, RMBG) with `--ml` flag for 80-95% better quality on complex images.
+            Multi-platform background removal binaries using optimized OpenCV GrabCut algorithm with adaptive parameters. **Ubuntu and macOS** binaries include optional ML support (U2-Net, RMBG) for 80-95% better quality on complex images.
 
             ### Downloads
 
-            | Platform | Binary | Use Case |
-            |----------|--------|----------|
-            | Alpine Linux | `bg-remover-alpine-x86_64` | Laravel Vapor |
-            | Ubuntu | `bg-remover-ubuntu-x86_64` | Laravel Forge |
-            | macOS | `bg-remover-macos-arm64` | Development (Apple Silicon) |
+            | Platform | Binary | ML Support | Use Case |
+            |----------|--------|------------|----------|
+            | Alpine Linux | `bg-remover-alpine-x86_64` | ❌ GrabCut only | Laravel Vapor |
+            | Ubuntu | `bg-remover-ubuntu-x86_64` | ✅ GrabCut + ML | Laravel Forge |
+            | macOS | `bg-remover-macos-arm64` | ✅ GrabCut + ML | Development (Apple Silicon) |
+
+            **Note:** Alpine binary uses optimized GrabCut algorithm (still excellent quality). Use `--ml` flag on Ubuntu/macOS for deep learning models.
 
             ### Installation
 
