@@ -10,6 +10,14 @@ SOURCE = src/bg-remover.cpp
 # Default target
 TARGET ?= local
 LINK_MODE ?= dynamic
+ML ?= 0
+
+# ML support (optional)
+ifeq ($(ML),1)
+    CXXFLAGS += -DWITH_ML
+    ML_INCLUDE = -I/opt/homebrew/Cellar/onnxruntime/1.23.2/include
+    ML_LIB = -L/opt/homebrew/Cellar/onnxruntime/1.23.2/lib -lonnxruntime
+endif
 
 # Platform-specific configurations
 ifeq ($(TARGET),alpine)
@@ -43,7 +51,7 @@ endif
 all: $(OUTPUT)
 
 $(OUTPUT): $(SOURCE)
-	$(CXX) $(CXXFLAGS) $(SOURCE) -o $(OUTPUT) $(OPENCV_FLAGS) $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) $(ML_INCLUDE) $(SOURCE) -o $(OUTPUT) $(OPENCV_FLAGS) $(ML_LIB) $(LDFLAGS)
 	strip $(OUTPUT)
 
 # Docker build targets

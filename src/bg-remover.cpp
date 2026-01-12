@@ -3,6 +3,10 @@
 #include <iostream>
 #include <string>
 
+#ifdef WITH_ML
+#include <onnxruntime/onnxruntime_cxx_api.h>
+#endif
+
 using namespace cv;
 using namespace std;
 
@@ -14,6 +18,8 @@ struct ProcessingOptions {
     string edgeMode = "guided";
     bool verbose = false;
     double kernelScale = 1.0;
+    bool useML = false;
+    string modelPath = "";
 };
 
 // Apply quality preset to options
@@ -30,90 +36,263 @@ void applyPreset(ProcessingOptions& opts) {
     // balanced is default (iterations=8, edgeMode="guided", kernelScale=1.0)
 }
 
-void removeBackground(const string& inputPath, const string& outputPath, const ProcessingOptions& opts) {
-    // Read input image
-    Mat image = imread(inputPath, IMREAD_COLOR);
-    
-    if (image.empty()) {
-        cerr << "Error: Could not open or find the image: " << inputPath << endl;
+// Load image from file or stdin
+Mat loadImage(const string& path) {
+    if (path == "-") {
+        // Read from stdin
+        #ifdef _WIN32
+        _setmode(_fileno(stdin), _O_BINARY);
+        #endif
+
+        // Read entire stdin into buffer
+        vector<uchar> buffer(istreambuf_iterator<char>(cin), {});
+
+        if (buffer.empty()) {
+            cerr << "Error: No data received from stdin" << endl;
+            exit(1);
+        }
+
+        // Decode image from buffer
+        Mat img = imdecode(buffer, IMREAD_COLOR);
+
+        if (img.empty()) {
+            cerr << "Error: Could not decode image from stdin" << endl;
+            exit(1);
+        }
+
+        return img;
+    } else {
+        // Read from file
+        Mat img = imread(path, IMREAD_COLOR);
+
+        if (img.empty()) {
+            cerr << "Error: Could not open or find the image: " << path << endl;
+            exit(1);
+        }
+
+        return img;
+    }
+}
+
+#ifdef WITH_ML
+// Run ML-based segmentation using ONNX model
+Mat runMLSegmentation(const Mat& image, const string& modelPath, bool verbose) {
+    try {
+        // Initialize ONNX Runtime
+        Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "bg-remover");
+        Ort::SessionOptions session_options;
+        session_options.SetIntraOpNumThreads(1);
+        session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_EXTENDED);
+
+        if (verbose) {
+            cerr << "Loading ML model: " << modelPath << endl;
+        }
+
+        // Load model
+        Ort::Session session(env, modelPath.c_str(), session_options);
+
+        // Get input shape (assuming model expects 320x320 for U2-Net-lite)
+        int input_height = 320;
+        int input_width = 320;
+
+        // Preprocess: resize and normalize
+        Mat resized;
+        resize(image, resized, Size(input_width, input_height));
+        resized.convertTo(resized, CV_32FC3, 1.0 / 255.0);
+
+        // Convert to tensor format (NCHW: batch, channels, height, width)
+        vector<float> input_tensor_values(1 * 3 * input_height * input_width);
+        for (int c = 0; c < 3; c++) {
+            for (int h = 0; h < input_height; h++) {
+                for (int w = 0; w < input_width; w++) {
+                    input_tensor_values[c * input_height * input_width + h * input_width + w] =
+                        resized.at<Vec3f>(h, w)[c];
+                }
+            }
+        }
+
+        // Setup input tensor
+        vector<int64_t> input_shape = {1, 3, input_height, input_width};
+        auto memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+        Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
+            memory_info, input_tensor_values.data(), input_tensor_values.size(),
+            input_shape.data(), input_shape.size());
+
+        // Get input/output names
+        Ort::AllocatorWithDefaultOptions allocator;
+        const char* input_names[] = {"input"};
+        const char* output_names[] = {"output"};
+
+        if (verbose) {
+            cerr << "Running ML inference..." << endl;
+        }
+
+        // Run inference
+        auto output_tensors = session.Run(Ort::RunOptions{nullptr}, input_names, &input_tensor, 1,
+                                         output_names, 1);
+
+        // Get output tensor
+        float* output_data = output_tensors[0].GetTensorMutableData<float>();
+        auto output_shape = output_tensors[0].GetTensorTypeAndShapeInfo().GetShape();
+
+        // Convert output to Mat (assuming output is HxW mask)
+        Mat mask(input_height, input_width, CV_32F, output_data);
+
+        // Resize mask back to original size
+        Mat result_mask;
+        resize(mask, result_mask, image.size());
+
+        // Convert to 8-bit (0-255)
+        result_mask.convertTo(result_mask, CV_8UC1, 255.0);
+
+        if (verbose) {
+            cerr << "ML inference completed" << endl;
+        }
+
+        return result_mask;
+
+    } catch (const Ort::Exception& e) {
+        cerr << "ONNX Runtime error: " << e.what() << endl;
         exit(1);
     }
+}
+#endif
 
-    if (opts.verbose) {
+// Save image to file or stdout
+void saveImage(const string& path, const Mat& img) {
+    vector<int> compression_params;
+    compression_params.push_back(IMWRITE_PNG_COMPRESSION);
+    compression_params.push_back(9);
+
+    if (path == "-") {
+        // Write to stdout
+        #ifdef _WIN32
+        _setmode(_fileno(stdout), _O_BINARY);
+        #endif
+
+        // Encode image to PNG buffer
+        vector<uchar> buffer;
+        if (!imencode(".png", img, buffer, compression_params)) {
+            cerr << "Error: Could not encode image to PNG" << endl;
+            exit(1);
+        }
+
+        // Write buffer to stdout
+        cout.write(reinterpret_cast<char*>(buffer.data()), buffer.size());
+        cout.flush();
+    } else {
+        // Write to file
+        if (!imwrite(path, img, compression_params)) {
+            cerr << "Error: Could not save output image: " << path << endl;
+            exit(1);
+        }
+    }
+}
+
+void removeBackground(const string& inputPath, const string& outputPath, const ProcessingOptions& opts) {
+    // Read input image (from file or stdin)
+    Mat image = loadImage(inputPath);
+
+    // Suppress verbose output when writing to stdout to avoid corrupting image data
+    bool showVerbose = opts.verbose && (outputPath != "-");
+
+    if (showVerbose) {
         cout << "Image loaded: " << image.cols << "x" << image.rows << endl;
         cout << "Processing options:" << endl;
-        cout << "  Quality: " << opts.quality << endl;
-        cout << "  Iterations: " << opts.iterations << endl;
-        cout << "  Edge mode: " << opts.edgeMode << endl;
-        cout << "  Kernel scale: " << opts.kernelScale << endl;
-    }
-    
-    // Create mask for background removal
-    Mat mask = Mat::zeros(image.size(), CV_8UC1);
-    
-    // Use GrabCut algorithm for background removal
-    int inset_x, inset_y;
-    if (opts.margin >= 0) {
-        // Use user-specified margin
-        inset_x = opts.margin;
-        inset_y = opts.margin;
-    } else {
-        // Proportional inset: 2% of dimensions or minimum 5px
-        inset_x = max(5, image.cols / 50);
-        inset_y = max(5, image.rows / 50);
-    }
-    Rect rectangle(inset_x, inset_y, image.cols - 2*inset_x, image.rows - 2*inset_y);
-    Mat bgModel, fgModel;
-
-    if (opts.verbose) {
-        cout << "Processing image with GrabCut algorithm..." << endl;
+        cout << "  Mode: " << (opts.useML ? "ML" : "GrabCut") << endl;
+        if (!opts.useML) {
+            cout << "  Quality: " << opts.quality << endl;
+            cout << "  Iterations: " << opts.iterations << endl;
+            cout << "  Edge mode: " << opts.edgeMode << endl;
+            cout << "  Kernel scale: " << opts.kernelScale << endl;
+        }
     }
 
-    // Run GrabCut
-    grabCut(image, mask, rectangle, bgModel, fgModel, opts.iterations, GC_INIT_WITH_RECT);
-    
-    // Create binary mask (0 = background, 255 = foreground)
-    Mat mask2 = (mask == GC_FGD) | (mask == GC_PR_FGD);
-    mask2.convertTo(mask2, CV_8UC1, 255);
-    
-    // Apply morphological operations to clean up mask
-    // Calculate kernel size based on image dimensions and scale factor
-    int base_dim = min(image.cols, image.rows);
-    int kernel_size = max(3, min(15, static_cast<int>((base_dim / 150) * opts.kernelScale)));
-    if (kernel_size % 2 == 0) kernel_size++;  // Must be odd
+    Mat mask2;
 
-    Mat kernel = getStructuringElement(MORPH_ELLIPSE, Size(kernel_size, kernel_size));
-    morphologyEx(mask2, mask2, MORPH_CLOSE, kernel);
-    morphologyEx(mask2, mask2, MORPH_OPEN, kernel);
-    
-    // Apply edge refinement based on selected mode
-    if (opts.edgeMode == "guided") {
-        // Edge-preserving guided filter for best boundary quality
-        Mat mask_float, image_gray, image_gray_float;
-        mask2.convertTo(mask_float, CV_32F, 1.0/255.0);
+#ifdef WITH_ML
+    if (opts.useML) {
+        // Use ML-based segmentation
+        if (opts.modelPath.empty()) {
+            cerr << "Error: ML mode requires --model <path> to specify model file" << endl;
+            exit(1);
+        }
+        mask2 = runMLSegmentation(image, opts.modelPath, showVerbose);
+    } else
+#else
+    if (opts.useML) {
+        cerr << "Error: ML mode not available. Binary was compiled without WITH_ML flag." << endl;
+        cerr << "To use ML mode, rebuild with: make ML=1" << endl;
+        exit(1);
+    }
+#endif
+    {
+        // Use traditional GrabCut algorithm for background removal
+        Mat mask = Mat::zeros(image.size(), CV_8UC1);
 
-        cvtColor(image, image_gray, COLOR_BGR2GRAY);
-        image_gray.convertTo(image_gray_float, CV_32F, 1.0/255.0);
+        int inset_x, inset_y;
+        if (opts.margin >= 0) {
+            // Use user-specified margin
+            inset_x = opts.margin;
+            inset_y = opts.margin;
+        } else {
+            // Proportional inset: 2% of dimensions or minimum 5px
+            inset_x = max(5, image.cols / 50);
+            inset_y = max(5, image.rows / 50);
+        }
+        Rect rectangle(inset_x, inset_y, image.cols - 2*inset_x, image.rows - 2*inset_y);
+        Mat bgModel, fgModel;
 
-        int guide_radius = max(4, kernel_size);
-        double eps = 0.01;
+        if (showVerbose) {
+            cout << "Processing image with GrabCut algorithm..." << endl;
+        }
 
-        Mat refined;
-        ximgproc::guidedFilter(image_gray_float, mask_float, refined, guide_radius, eps);
-        refined.convertTo(mask2, CV_8UC1, 255.0);
-    } else if (opts.edgeMode == "bilateral") {
-        // Bilateral filter for edge-preserving smoothing
-        Mat mask_float;
-        mask2.convertTo(mask_float, CV_32F);
-        Mat filtered;
-        bilateralFilter(mask_float, filtered, 9, 75, 75);
-        filtered.convertTo(mask2, CV_8UC1);
-    } else {
-        // Simple Gaussian blur (fast mode)
-        int blur_size = max(5, kernel_size * 2 + 1);
-        if (blur_size % 2 == 0) blur_size++;
-        double sigma = blur_size / 4.0;
-        GaussianBlur(mask2, mask2, Size(blur_size, blur_size), sigma);
+        // Run GrabCut
+        grabCut(image, mask, rectangle, bgModel, fgModel, opts.iterations, GC_INIT_WITH_RECT);
+
+        // Create binary mask (0 = background, 255 = foreground)
+        mask2 = (mask == GC_FGD) | (mask == GC_PR_FGD);
+        mask2.convertTo(mask2, CV_8UC1, 255);
+
+        // Apply morphological operations to clean up mask
+        // Calculate kernel size based on image dimensions and scale factor
+        int base_dim = min(image.cols, image.rows);
+        int kernel_size = max(3, min(15, static_cast<int>((base_dim / 150) * opts.kernelScale)));
+        if (kernel_size % 2 == 0) kernel_size++;  // Must be odd
+
+        Mat kernel = getStructuringElement(MORPH_ELLIPSE, Size(kernel_size, kernel_size));
+        morphologyEx(mask2, mask2, MORPH_CLOSE, kernel);
+        morphologyEx(mask2, mask2, MORPH_OPEN, kernel);
+
+        // Apply edge refinement based on selected mode
+        if (opts.edgeMode == "guided") {
+            // Edge-preserving guided filter for best boundary quality
+            Mat mask_float, image_gray, image_gray_float;
+            mask2.convertTo(mask_float, CV_32F, 1.0/255.0);
+
+            cvtColor(image, image_gray, COLOR_BGR2GRAY);
+            image_gray.convertTo(image_gray_float, CV_32F, 1.0/255.0);
+
+            int guide_radius = max(4, kernel_size);
+            double eps = 0.01;
+
+            Mat refined;
+            ximgproc::guidedFilter(image_gray_float, mask_float, refined, guide_radius, eps);
+            refined.convertTo(mask2, CV_8UC1, 255.0);
+        } else if (opts.edgeMode == "bilateral") {
+            // Bilateral filter for edge-preserving smoothing
+            Mat mask_float;
+            mask2.convertTo(mask_float, CV_32F);
+            Mat filtered;
+            bilateralFilter(mask_float, filtered, 9, 75, 75);
+            filtered.convertTo(mask2, CV_8UC1);
+        } else {
+            // Simple Gaussian blur (fast mode)
+            int blur_size = max(5, kernel_size * 2 + 1);
+            if (blur_size % 2 == 0) blur_size++;
+            double sigma = blur_size / 4.0;
+            GaussianBlur(mask2, mask2, Size(blur_size, blur_size), sigma);
+        }
     }
     
     // Create output image with alpha channel
@@ -122,17 +301,13 @@ void removeBackground(const string& inputPath, const string& outputPath, const P
     split(image, channels);
     channels.push_back(mask2); // Add alpha channel
     merge(channels, result);
-    
-    // Save output as PNG with transparency
-    vector<int> compression_params;
-    compression_params.push_back(IMWRITE_PNG_COMPRESSION);
-    compression_params.push_back(9);
-    
-    if (imwrite(outputPath, result, compression_params)) {
+
+    // Save output (to file or stdout)
+    saveImage(outputPath, result);
+
+    // Success message (skip for stdout to avoid mixing with image data)
+    if (outputPath != "-") {
         cout << "✅ Background removed successfully → " << outputPath << endl;
-    } else {
-        cerr << "Error: Could not save output image: " << outputPath << endl;
-        exit(1);
     }
 }
 
@@ -173,13 +348,17 @@ int main(int argc, char** argv) {
             }
         } else if (arg == "-v" || arg == "--verbose") {
             opts.verbose = true;
+        } else if (arg == "--ml") {
+            opts.useML = true;
+        } else if (arg == "--model" && i + 1 < argc) {
+            opts.modelPath = argv[++i];
         } else if (arg == "-h" || arg == "--help") {
             cout << "Background Remover CLI" << endl;
             cout << "Usage: bg-remover -i <input> -o <output> [options]" << endl;
             cout << endl;
             cout << "Required:" << endl;
-            cout << "  -i, --input <path>       Input image file path" << endl;
-            cout << "  -o, --output <path>      Output image file path" << endl;
+            cout << "  -i, --input <path>       Input image file path (use '-' for stdin)" << endl;
+            cout << "  -o, --output <path>      Output image file path (use '-' for stdout)" << endl;
             cout << endl;
             cout << "Options:" << endl;
             cout << "  -q, --quality <preset>   Quality preset: fast, balanced, quality" << endl;
@@ -191,6 +370,12 @@ int main(int argc, char** argv) {
             cout << "  -v, --verbose            Show detailed processing information" << endl;
             cout << "  -h, --help               Show this help message" << endl;
             cout << endl;
+#ifdef WITH_ML
+            cout << "ML Options:" << endl;
+            cout << "  --ml                     Use ML-based segmentation (requires --model)" << endl;
+            cout << "  --model <path>           Path to ONNX model file (U2-Net, RMBG, etc.)" << endl;
+            cout << endl;
+#endif
             cout << "Quality Presets:" << endl;
             cout << "  fast      - Quick processing (5 iterations, blur)" << endl;
             cout << "  balanced  - Good quality and speed (8 iterations, guided)" << endl;
@@ -200,6 +385,18 @@ int main(int argc, char** argv) {
             cout << "  bg-remover -i photo.jpg -o output.png" << endl;
             cout << "  bg-remover -i photo.jpg -o output.png -q quality" << endl;
             cout << "  bg-remover -i photo.jpg -o output.png -n 15 -e guided -v" << endl;
+            cout << endl;
+            cout << "Piping workflows:" << endl;
+            cout << "  cat photo.jpg | bg-remover -i - -o output.png" << endl;
+            cout << "  bg-remover -i photo.jpg -o - > output.png" << endl;
+            cout << "  cat photo.jpg | bg-remover -i - -o - > output.png" << endl;
+            cout << "  curl https://example.com/photo.jpg | bg-remover -i - -o -" << endl;
+#ifdef WITH_ML
+            cout << endl;
+            cout << "ML mode examples:" << endl;
+            cout << "  bg-remover -i photo.jpg -o output.png --ml --model u2net.onnx" << endl;
+            cout << "  bg-remover -i photo.jpg -o output.png --ml --model rmbg-1.4.onnx" << endl;
+#endif
             return 0;
         }
     }

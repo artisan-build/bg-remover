@@ -14,6 +14,19 @@ RUN apt-get update && apt-get install -y \
     file \
     && rm -rf /var/lib/apt/lists/*
 
+# Optional: Install ONNX Runtime for ML support (commented out by default)
+# Note: ONNX Runtime may need to be built from source or installed from GitHub releases
+# for Ubuntu. See: https://github.com/microsoft/onnxruntime/releases
+# ARG ML=0
+# RUN if [ "$ML" = "1" ]; then \
+#     wget https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-linux-x64-1.23.2.tgz && \
+#     tar -xzf onnxruntime-linux-x64-1.23.2.tgz && \
+#     cp -r onnxruntime-linux-x64-1.23.2/include/* /usr/local/include/ && \
+#     cp -r onnxruntime-linux-x64-1.23.2/lib/* /usr/local/lib/ && \
+#     ldconfig && \
+#     rm -rf onnxruntime-linux-x64-1.23.2*; \
+# fi
+
 # Copy source file
 COPY src/bg-remover.cpp src/
 COPY Makefile .

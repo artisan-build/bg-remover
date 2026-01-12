@@ -13,6 +13,10 @@ RUN apk add --no-cache \
     opencv-contrib-dev \
     file
 
+# Optional: Install ONNX Runtime for ML support (commented out by default)
+# Uncomment to build with ML support: docker build --build-arg ML=1 ...
+# RUN apk add --no-cache onnxruntime onnxruntime-dev
+
 # Copy source file
 COPY src/bg-remover.cpp src/
 COPY Makefile .
