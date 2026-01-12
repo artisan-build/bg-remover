@@ -95,10 +95,43 @@ Mat runMLSegmentation(const Mat& image, const string& modelPath, bool verbose) {
 
         // Load model
         Ort::Session session(env, modelPath.c_str(), session_options);
+        Ort::AllocatorWithDefaultOptions allocator;
 
-        // Get input shape (assuming model expects 320x320 for U2-Net-lite)
-        int input_height = 320;
-        int input_width = 320;
+        // Query input metadata from model
+        size_t num_input_nodes = session.GetInputCount();
+        if (num_input_nodes == 0) {
+            cerr << "Error: Model has no input nodes" << endl;
+            exit(1);
+        }
+
+        // Get first input name
+        Ort::AllocatedStringPtr input_name_ptr = session.GetInputNameAllocated(0, allocator);
+        string input_name_str(input_name_ptr.get());
+
+        // Get input shape
+        Ort::TypeInfo input_type_info = session.GetInputTypeInfo(0);
+        auto input_tensor_info = input_type_info.GetTensorTypeAndShapeInfo();
+        vector<int64_t> input_shape_vec = input_tensor_info.GetShape();
+
+        if (verbose) {
+            cerr << "Model input name: " << input_name_str << endl;
+            cerr << "Model input shape: [";
+            for (size_t i = 0; i < input_shape_vec.size(); i++) {
+                cerr << input_shape_vec[i];
+                if (i < input_shape_vec.size() - 1) cerr << ", ";
+            }
+            cerr << "]" << endl;
+        }
+
+        // Handle dynamic dimensions (-1 in shape) - use common defaults
+        int64_t batch_size = (input_shape_vec.size() > 0 && input_shape_vec[0] > 0) ? input_shape_vec[0] : 1;
+        int64_t channels = (input_shape_vec.size() > 1 && input_shape_vec[1] > 0) ? input_shape_vec[1] : 3;
+        int64_t input_height = (input_shape_vec.size() > 2 && input_shape_vec[2] > 0) ? input_shape_vec[2] : 320;
+        int64_t input_width = (input_shape_vec.size() > 3 && input_shape_vec[3] > 0) ? input_shape_vec[3] : 320;
+
+        if (verbose) {
+            cerr << "Using input dimensions: " << batch_size << "x" << channels << "x" << input_height << "x" << input_width << endl;
+        }
 
         // Preprocess: resize and normalize
         Mat resized;
@@ -106,8 +139,8 @@ Mat runMLSegmentation(const Mat& image, const string& modelPath, bool verbose) {
         resized.convertTo(resized, CV_32FC3, 1.0 / 255.0);
 
         // Convert to tensor format (NCHW: batch, channels, height, width)
-        vector<float> input_tensor_values(1 * 3 * input_height * input_width);
-        for (int c = 0; c < 3; c++) {
+        vector<float> input_tensor_values(batch_size * channels * input_height * input_width);
+        for (int c = 0; c < channels; c++) {
             for (int h = 0; h < input_height; h++) {
                 for (int w = 0; w < input_width; w++) {
                     input_tensor_values[c * input_height * input_width + h * input_width + w] =
@@ -116,21 +149,32 @@ Mat runMLSegmentation(const Mat& image, const string& modelPath, bool verbose) {
             }
         }
 
-        // Setup input tensor
-        vector<int64_t> input_shape = {1, 3, input_height, input_width};
+        // Setup input tensor with actual shape from model
+        vector<int64_t> input_shape = {batch_size, channels, input_height, input_width};
         auto memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
         Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
             memory_info, input_tensor_values.data(), input_tensor_values.size(),
             input_shape.data(), input_shape.size());
 
-        // Get input/output names
-        Ort::AllocatorWithDefaultOptions allocator;
-        const char* input_names[] = {"input"};
-        const char* output_names[] = {"output"};
+        // Query output metadata from model
+        size_t num_output_nodes = session.GetOutputCount();
+        if (num_output_nodes == 0) {
+            cerr << "Error: Model has no output nodes" << endl;
+            exit(1);
+        }
+
+        // Get first output name
+        Ort::AllocatedStringPtr output_name_ptr = session.GetOutputNameAllocated(0, allocator);
+        string output_name_str(output_name_ptr.get());
 
         if (verbose) {
+            cerr << "Model output name: " << output_name_str << endl;
             cerr << "Running ML inference..." << endl;
         }
+
+        // Prepare input/output names for inference
+        const char* input_names[] = {input_name_str.c_str()};
+        const char* output_names[] = {output_name_str.c_str()};
 
         // Run inference
         auto output_tensors = session.Run(Ort::RunOptions{nullptr}, input_names, &input_tensor, 1,
@@ -140,8 +184,36 @@ Mat runMLSegmentation(const Mat& image, const string& modelPath, bool verbose) {
         float* output_data = output_tensors[0].GetTensorMutableData<float>();
         auto output_shape = output_tensors[0].GetTensorTypeAndShapeInfo().GetShape();
 
-        // Convert output to Mat (assuming output is HxW mask)
-        Mat mask(input_height, input_width, CV_32F, output_data);
+        if (verbose) {
+            cerr << "Output shape: [";
+            for (size_t i = 0; i < output_shape.size(); i++) {
+                cerr << output_shape[i];
+                if (i < output_shape.size() - 1) cerr << ", ";
+            }
+            cerr << "]" << endl;
+        }
+
+        // Handle different output formats
+        Mat mask;
+        if (output_shape.size() == 4) {
+            // Format: [batch, channels, height, width] - extract first channel
+            int64_t out_height = output_shape[2];
+            int64_t out_width = output_shape[3];
+            mask = Mat(out_height, out_width, CV_32F, output_data);
+        } else if (output_shape.size() == 3) {
+            // Format: [batch, height, width]
+            int64_t out_height = output_shape[1];
+            int64_t out_width = output_shape[2];
+            mask = Mat(out_height, out_width, CV_32F, output_data);
+        } else if (output_shape.size() == 2) {
+            // Format: [height, width]
+            int64_t out_height = output_shape[0];
+            int64_t out_width = output_shape[1];
+            mask = Mat(out_height, out_width, CV_32F, output_data);
+        } else {
+            cerr << "Error: Unsupported output shape with " << output_shape.size() << " dimensions" << endl;
+            exit(1);
+        }
 
         // Resize mask back to original size
         Mat result_mask;
