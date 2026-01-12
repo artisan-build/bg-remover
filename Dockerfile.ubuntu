@@ -16,7 +16,8 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install ONNX Runtime for ML support
-RUN wget -q https://github.com/microsoft/onnxruntime/releases/download/v1.19.2/onnxruntime-linux-x64-1.19.2.tgz && \
+RUN mkdir -p /usr/local/include /usr/local/lib && \
+    wget -q https://github.com/microsoft/onnxruntime/releases/download/v1.19.2/onnxruntime-linux-x64-1.19.2.tgz && \
     tar -xzf onnxruntime-linux-x64-1.19.2.tgz && \
     cp -r onnxruntime-linux-x64-1.19.2/include/* /usr/local/include/ && \
     cp -r onnxruntime-linux-x64-1.19.2/lib/* /usr/local/lib/ && \
