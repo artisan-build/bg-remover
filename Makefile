@@ -15,8 +15,16 @@ ML ?= 0
 # ML support (optional)
 ifeq ($(ML),1)
     CXXFLAGS += -DWITH_ML
-    ML_INCLUDE = -I/opt/homebrew/Cellar/onnxruntime/1.23.2/include
-    ML_LIB = -L/opt/homebrew/Cellar/onnxruntime/1.23.2/lib -lonnxruntime
+    # Try pkg-config first, fallback to homebrew paths on macOS
+    ML_PKG_CONFIG := $(shell pkg-config --exists onnxruntime 2>/dev/null && echo "yes")
+    ifeq ($(ML_PKG_CONFIG),yes)
+        ML_INCLUDE = $(shell pkg-config --cflags onnxruntime)
+        ML_LIB = $(shell pkg-config --libs onnxruntime)
+    else
+        # Fallback to macOS Homebrew paths
+        ML_INCLUDE = -I/opt/homebrew/Cellar/onnxruntime/1.23.2/include
+        ML_LIB = -L/opt/homebrew/Cellar/onnxruntime/1.23.2/lib -lonnxruntime
+    endif
 endif
 
 # Platform-specific configurations
