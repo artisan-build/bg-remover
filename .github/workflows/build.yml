@@ -45,16 +45,16 @@ jobs:
           docker rm extract
       
       # macOS build (native)
-      - name: Install OpenCV and ONNX Runtime (macOS)
+      - name: Install OpenCV (macOS)
         if: matrix.platform == 'macos'
         run: |
-          brew install opencv onnxruntime pkg-config
+          brew install opencv pkg-config
 
-      - name: Build macOS ARM64 binary with ML support
+      - name: Build macOS ARM64 binary
         if: matrix.platform == 'macos'
         run: |
-          # Build for ARM64 (Apple Silicon) with ML support
-          make ML=1 TARGET=local OUTPUT=${{ matrix.output }}
+          # Build for ARM64 (Apple Silicon)
+          make TARGET=local OUTPUT=${{ matrix.output }}
       
       # Verify binary
       - name: Verify binary
@@ -143,7 +143,7 @@ jobs:
           body: |
             ## BG Remover ${{ steps.version.outputs.tag }}
 
-            Multi-platform background removal binaries with **ML support enabled**. Uses OpenCV GrabCut algorithm by default, or optional deep learning models (U2-Net, RMBG) with `--ml` flag for significantly improved quality.
+            Multi-platform background removal binaries using optimized OpenCV GrabCut algorithm with adaptive parameters, proportional edge detection, and bilateral filtering for improved quality.
 
             ### Downloads
 
@@ -166,27 +166,8 @@ jobs:
             # Make executable
             chmod +x bg-remover-alpine-x86_64
 
-            # Run (GrabCut mode - default)
+            # Run
             ./bg-remover-alpine-x86_64 -i input.jpg -o output.png
-
-            # Run with ML model for better quality (requires ONNX model file)
-            ./bg-remover-alpine-x86_64 -i input.jpg -o output.png --ml --model u2net.onnx
-            ```
-
-            ### ML Mode
-
-            All binaries include ML support. To use deep learning models:
-
-            1. Download an ONNX model:
-               - [U2-Net](https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net.onnx) (176MB, excellent quality)
-               - [U2-Net-lite](https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx) (4.7MB, good quality, faster)
-
-            2. Run with `--ml` flag:
-               ```bash
-               ./bg-remover -i photo.jpg -o output.png --ml --model u2net.onnx
-               ```
-
-            ML mode provides 80-95% better edge quality compared to GrabCut, especially for hair, fur, and complex backgrounds.
             ```
 
             ### Checksums

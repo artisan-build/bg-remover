@@ -1,7 +1,12 @@
 #include <opencv2/opencv.hpp>
-#include <opencv2/ximgproc.hpp>
 #include <iostream>
 #include <string>
+
+// Check if opencv_contrib is available
+#if CV_VERSION_MAJOR >= 3 && __has_include(<opencv2/ximgproc.hpp>)
+#define HAVE_OPENCV_CONTRIB
+#include <opencv2/ximgproc.hpp>
+#endif
 
 #ifdef WITH_ML
 #include <onnxruntime/onnxruntime_cxx_api.h>
@@ -266,6 +271,7 @@ void removeBackground(const string& inputPath, const string& outputPath, const P
 
         // Apply edge refinement based on selected mode
         if (opts.edgeMode == "guided") {
+#ifdef HAVE_OPENCV_CONTRIB
             // Edge-preserving guided filter for best boundary quality
             Mat mask_float, image_gray, image_gray_float;
             mask2.convertTo(mask_float, CV_32F, 1.0/255.0);
@@ -279,6 +285,14 @@ void removeBackground(const string& inputPath, const string& outputPath, const P
             Mat refined;
             ximgproc::guidedFilter(image_gray_float, mask_float, refined, guide_radius, eps);
             refined.convertTo(mask2, CV_8UC1, 255.0);
+#else
+            // Fallback to bilateral filter if opencv_contrib not available
+            Mat mask_float;
+            mask2.convertTo(mask_float, CV_32F);
+            Mat filtered;
+            bilateralFilter(mask_float, filtered, 9, 75, 75);
+            filtered.convertTo(mask2, CV_8UC1);
+#endif
         } else if (opts.edgeMode == "bilateral") {
             // Bilateral filter for edge-preserving smoothing
             Mat mask_float;

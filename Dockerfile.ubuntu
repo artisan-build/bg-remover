@@ -4,44 +4,21 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /app
 
-# Install OpenCV including contrib modules and build tools
+# Install OpenCV and build tools
 RUN apt-get update && apt-get install -y \
     g++ \
     make \
     pkg-config \
     libopencv-dev \
-    libopencv-contrib-dev \
     file \
-    wget \
     && rm -rf /var/lib/apt/lists/*
-
-# Install ONNX Runtime for ML support
-RUN wget https://github.com/microsoft/onnxruntime/releases/download/v1.19.2/onnxruntime-linux-x64-1.19.2.tgz && \
-    tar -xzf onnxruntime-linux-x64-1.19.2.tgz && \
-    cp -r onnxruntime-linux-x64-1.19.2/include/* /usr/local/include/ && \
-    cp -r onnxruntime-linux-x64-1.19.2/lib/* /usr/local/lib/ && \
-    ldconfig && \
-    rm -rf onnxruntime-linux-x64-1.19.2*
-
-# Create pkg-config file for ONNX Runtime
-RUN mkdir -p /usr/local/lib/pkgconfig && \
-    echo "prefix=/usr/local" > /usr/local/lib/pkgconfig/onnxruntime.pc && \
-    echo "exec_prefix=\${prefix}" >> /usr/local/lib/pkgconfig/onnxruntime.pc && \
-    echo "libdir=\${exec_prefix}/lib" >> /usr/local/lib/pkgconfig/onnxruntime.pc && \
-    echo "includedir=\${prefix}/include" >> /usr/local/lib/pkgconfig/onnxruntime.pc && \
-    echo "" >> /usr/local/lib/pkgconfig/onnxruntime.pc && \
-    echo "Name: ONNX Runtime" >> /usr/local/lib/pkgconfig/onnxruntime.pc && \
-    echo "Description: ONNX Runtime" >> /usr/local/lib/pkgconfig/onnxruntime.pc && \
-    echo "Version: 1.19.2" >> /usr/local/lib/pkgconfig/onnxruntime.pc && \
-    echo "Libs: -L\${libdir} -lonnxruntime" >> /usr/local/lib/pkgconfig/onnxruntime.pc && \
-    echo "Cflags: -I\${includedir}" >> /usr/local/lib/pkgconfig/onnxruntime.pc
 
 # Copy source file
 COPY src/bg-remover.cpp src/
 COPY Makefile .
 
-# Build the binary with ML support
-RUN make ML=1
+# Build the binary (without ML/opencv-contrib for Ubuntu)
+RUN make
 
 # Show what we built and its dependencies
 RUN echo "Binary info:" && \

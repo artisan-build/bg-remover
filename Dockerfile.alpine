@@ -2,25 +2,22 @@ FROM alpine:3.19
 
 WORKDIR /app
 
-# Install ALL OpenCV dependencies including contrib modules and ONNX Runtime for ML
+# Install OpenCV and build tools
+# Note: opencv-contrib and onnxruntime not available in Alpine 3.19 repos
 RUN apk add --no-cache \
     g++ \
     make \
     pkgconfig \
     opencv \
     opencv-dev \
-    opencv-contrib \
-    opencv-contrib-dev \
-    onnxruntime \
-    onnxruntime-dev \
     file
 
 # Copy source file
 COPY src/bg-remover.cpp src/
 COPY Makefile .
 
-# Build the binary with ML support
-RUN make ML=1
+# Build the binary (without ML support for Alpine)
+RUN make
 
 # Show what we built and its dependencies
 RUN echo "Binary info:" && \
