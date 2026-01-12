@@ -7,8 +7,8 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version tag (e.g., v1.0.0)'
-        required: false
+        description: 'Version tag (e.g., v1.0.0) - required for release creation'
+        required: true
 
 jobs:
   build:
@@ -86,31 +86,43 @@ jobs:
     name: Create Release
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
-    
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
+      # Set version variable
+      - name: Set version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          fi
+
       # Download all artifacts
       - name: Download Alpine binary
         uses: actions/download-artifact@v4
         with:
           name: bg-remover-alpine-x86_64
           path: ./dist
-      
+
       - name: Download Ubuntu binary
         uses: actions/download-artifact@v4
         with:
           name: bg-remover-ubuntu-x86_64
           path: ./dist
-      
+
       - name: Download macOS binary
         uses: actions/download-artifact@v4
         with:
           name: bg-remover-macos-arm64
           path: ./dist
-      
+
       # Create combined checksums file
       - name: Create checksums.txt
         run: |
@@ -118,11 +130,12 @@ jobs:
           cat *.sha256 > checksums.txt
           echo "=== Checksums ==="
           cat checksums.txt
-      
+
       # Create GitHub Release
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.version.outputs.tag }}
           files: |
             dist/bg-remover-alpine-x86_64
             dist/bg-remover-ubuntu-x86_64
@@ -132,41 +145,41 @@ jobs:
           prerelease: false
           generate_release_notes: true
           body: |
-            ## BG Remover ${{ github.ref_name }}
-            
+            ## BG Remover ${{ steps.version.outputs.tag }}
+
             Multi-platform background removal binaries using OpenCV GrabCut algorithm.
-            
+
             ### Downloads
-            
+
             | Platform | Binary | Use Case |
             |----------|--------|----------|
             | Alpine Linux | `bg-remover-alpine-x86_64` | Laravel Vapor |
             | Ubuntu | `bg-remover-ubuntu-x86_64` | Laravel Forge |
             | macOS | `bg-remover-macos-arm64` | Development (Apple Silicon) |
-            
+
             ### Installation
-            
+
             ```bash
             # Download for your platform
-            wget https://github.com/artisan-build/bg-remover/releases/download/${{ github.ref_name }}/bg-remover-alpine-x86_64
-            
+            wget https://github.com/artisan-build/bg-remover/releases/download/${{ steps.version.outputs.tag }}/bg-remover-alpine-x86_64
+
             # Verify checksum
-            wget https://github.com/artisan-build/bg-remover/releases/download/${{ github.ref_name }}/checksums.txt
+            wget https://github.com/artisan-build/bg-remover/releases/download/${{ steps.version.outputs.tag }}/checksums.txt
             sha256sum -c checksums.txt
-            
+
             # Make executable
             chmod +x bg-remover-alpine-x86_64
-            
+
             # Run
             ./bg-remover-alpine-x86_64 -i input.jpg -o output.png
             ```
-            
+
             ### Checksums
-            
+
             See `checksums.txt` for SHA256 verification hashes.
-            
+
             ### Documentation
-            
+
             - [README](https://github.com/artisan-build/bg-remover#readme) - Quick start and usage
             - [INTEGRATION.md](https://github.com/artisan-build/bg-remover/blob/main/INTEGRATION.md) - Integration examples
             - [FORKING.md](https://github.com/artisan-build/bg-remover/blob/main/FORKING.md) - Community platform support
