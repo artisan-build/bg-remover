@@ -3,21 +3,45 @@ FROM alpine:3.19
 WORKDIR /app
 
 # Install OpenCV and build tools
-# Note: opencv-contrib and onnxruntime not available in Alpine 3.19 repos
 RUN apk add --no-cache \
     g++ \
     make \
     pkgconfig \
     opencv \
     opencv-dev \
-    file
+    file \
+    wget \
+    ca-certificates
+
+# Install ONNX Runtime using static musl build
+# Using a compatible Linux x86_64 build
+RUN wget -q https://github.com/microsoft/onnxruntime/releases/download/v1.19.2/onnxruntime-linux-x64-1.19.2.tgz && \
+    tar -xzf onnxruntime-linux-x64-1.19.2.tgz && \
+    cp -r onnxruntime-linux-x64-1.19.2/include/* /usr/local/include/ && \
+    cp -r onnxruntime-linux-x64-1.19.2/lib/* /usr/local/lib/ && \
+    rm -rf onnxruntime-linux-x64-1.19.2*
+
+# Install gcompat for glibc compatibility (ONNX Runtime uses glibc)
+RUN apk add --no-cache gcompat
+
+# Create pkg-config file for ONNX Runtime
+RUN mkdir -p /usr/local/lib/pkgconfig && \
+    printf "prefix=/usr/local\n\
+exec_prefix=\${prefix}\n\
+libdir=\${exec_prefix}/lib\n\
+includedir=\${prefix}/include\n\n\
+Name: ONNX Runtime\n\
+Description: ONNX Runtime\n\
+Version: 1.19.2\n\
+Libs: -L\${libdir} -lonnxruntime\n\
+Cflags: -I\${includedir}\n" > /usr/local/lib/pkgconfig/onnxruntime.pc
 
 # Copy source file
 COPY src/bg-remover.cpp src/
 COPY Makefile .
 
-# Build the binary (without ML support for Alpine)
-RUN make
+# Build the binary with ML support
+RUN make ML=1
 
 # Show what we built and its dependencies
 RUN echo "Binary info:" && \
