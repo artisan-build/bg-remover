@@ -15,10 +15,10 @@ RUN apk add --no-cache \
 
 # Install ONNX Runtime using static musl build
 # Using a compatible Linux x86_64 build
-RUN mkdir -p /usr/local/include /usr/local/lib && \
+RUN mkdir -p /usr/local/include/onnxruntime /usr/local/lib && \
     wget -q https://github.com/microsoft/onnxruntime/releases/download/v1.19.2/onnxruntime-linux-x64-1.19.2.tgz && \
     tar -xzf onnxruntime-linux-x64-1.19.2.tgz && \
-    cp -r onnxruntime-linux-x64-1.19.2/include/* /usr/local/include/ && \
+    cp -r onnxruntime-linux-x64-1.19.2/include/* /usr/local/include/onnxruntime/ && \
     cp -r onnxruntime-linux-x64-1.19.2/lib/* /usr/local/lib/ && \
     rm -rf onnxruntime-linux-x64-1.19.2*
 
