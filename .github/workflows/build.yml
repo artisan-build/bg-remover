@@ -17,16 +17,11 @@ jobs:
     strategy:
       matrix:
         include:
-          - platform: alpine
-            runner: ubuntu-latest
-            dockerfile: Dockerfile.alpine
-            output: bg-remover-alpine-x86_64
-            
           - platform: ubuntu
             runner: ubuntu-latest
             dockerfile: Dockerfile.ubuntu
             output: bg-remover-ubuntu-x86_64
-            
+
           - platform: macos
             runner: macos-latest
             output: bg-remover-macos-arm64
@@ -35,7 +30,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       
-      # Linux builds (Alpine & Ubuntu) via Docker
+      # Linux build (Ubuntu) via Docker
       - name: Build ${{ matrix.platform }} binary (Docker)
         if: matrix.platform != 'macos'
         run: |
@@ -101,12 +96,6 @@ jobs:
           fi
 
       # Download all artifacts
-      - name: Download Alpine binary
-        uses: actions/download-artifact@v4
-        with:
-          name: bg-remover-alpine-x86_64
-          path: ./dist
-
       - name: Download Ubuntu binary
         uses: actions/download-artifact@v4
         with:
@@ -133,7 +122,6 @@ jobs:
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           files: |
-            dist/bg-remover-alpine-x86_64
             dist/bg-remover-ubuntu-x86_64
             dist/bg-remover-macos-arm64
             dist/checksums.txt
@@ -143,33 +131,33 @@ jobs:
           body: |
             ## BG Remover ${{ steps.version.outputs.tag }}
 
-            Multi-platform background removal binaries using optimized OpenCV GrabCut algorithm with adaptive parameters. **Ubuntu and macOS** binaries include optional ML support (U2-Net, RMBG) for 80-95% better quality on complex images.
+            Multi-platform background removal binaries with **ML support enabled**. Use optimized OpenCV GrabCut by default, or switch to deep learning models (U2-Net, RMBG) with `--ml` flag for 80-95% better quality on complex images.
 
             ### Downloads
 
             | Platform | Binary | ML Support | Use Case |
             |----------|--------|------------|----------|
-            | Alpine Linux | `bg-remover-alpine-x86_64` | ❌ GrabCut only | Laravel Vapor |
-            | Ubuntu | `bg-remover-ubuntu-x86_64` | ✅ GrabCut + ML | Laravel Forge |
+            | Ubuntu | `bg-remover-ubuntu-x86_64` | ✅ GrabCut + ML | Laravel Vapor & Forge |
             | macOS | `bg-remover-macos-arm64` | ✅ GrabCut + ML | Development (Apple Silicon) |
-
-            **Note:** Alpine binary uses optimized GrabCut algorithm (still excellent quality). Use `--ml` flag on Ubuntu/macOS for deep learning models.
 
             ### Installation
 
             ```bash
             # Download for your platform
-            wget https://github.com/artisan-build/bg-remover/releases/download/${{ steps.version.outputs.tag }}/bg-remover-alpine-x86_64
+            wget https://github.com/artisan-build/bg-remover/releases/download/${{ steps.version.outputs.tag }}/bg-remover-ubuntu-x86_64
 
             # Verify checksum
             wget https://github.com/artisan-build/bg-remover/releases/download/${{ steps.version.outputs.tag }}/checksums.txt
             sha256sum -c checksums.txt
 
             # Make executable
-            chmod +x bg-remover-alpine-x86_64
+            chmod +x bg-remover-ubuntu-x86_64
 
-            # Run
-            ./bg-remover-alpine-x86_64 -i input.jpg -o output.png
+            # Run with GrabCut (default)
+            ./bg-remover-ubuntu-x86_64 -i input.jpg -o output.png
+
+            # Run with ML models for better quality
+            ./bg-remover-ubuntu-x86_64 -i input.jpg -o output.png --ml --model /path/to/u2net.onnx
             ```
 
             ### Checksums

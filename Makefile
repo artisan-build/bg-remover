@@ -31,12 +31,6 @@ ifeq ($(ML),1)
 endif
 
 # Platform-specific configurations
-ifeq ($(TARGET),alpine)
-    # Alpine Linux build (musl libc)
-    DOCKERFILE = Dockerfile.alpine
-    OUTPUT = bg-remover-alpine-x86_64
-endif
-
 ifeq ($(TARGET),ubuntu)
     # Ubuntu build (glibc)
     DOCKERFILE = Dockerfile.ubuntu
@@ -66,13 +60,6 @@ $(OUTPUT): $(SOURCE)
 	strip $(OUTPUT)
 
 # Docker build targets
-build-docker-alpine:
-	docker build -f Dockerfile.alpine -t bg-remover-alpine .
-	docker create --name bg-remover-extract bg-remover-alpine
-	docker cp bg-remover-extract:/app/$(BINARY) ./bg-remover-alpine-x86_64
-	docker rm bg-remover-extract
-	@echo "✅ Built: bg-remover-alpine-x86_64"
-
 build-docker-ubuntu:
 	docker build -f Dockerfile.ubuntu -t bg-remover-ubuntu .
 	docker create --name bg-remover-extract bg-remover-ubuntu
@@ -81,10 +68,6 @@ build-docker-ubuntu:
 	@echo "✅ Built: bg-remover-ubuntu-x86_64"
 
 # Convenience targets
-alpine: TARGET = alpine
-alpine: DOCKERFILE = Dockerfile.alpine
-alpine: build-docker-alpine
-
 ubuntu: TARGET = ubuntu
 ubuntu: DOCKERFILE = Dockerfile.ubuntu
 ubuntu: build-docker-ubuntu
@@ -93,4 +76,4 @@ ubuntu: build-docker-ubuntu
 clean:
 	rm -f $(BINARY) bg-remover-*
 
-.PHONY: all clean alpine ubuntu build-docker-alpine build-docker-ubuntu
+.PHONY: all clean ubuntu build-docker-ubuntu
