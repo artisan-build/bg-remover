@@ -21,9 +21,12 @@ ifeq ($(ML),1)
         ML_INCLUDE = $(shell pkg-config --cflags onnxruntime)
         ML_LIB = $(shell pkg-config --libs onnxruntime)
     else
-        # Fallback to macOS Homebrew paths
-        ML_INCLUDE = -I/opt/homebrew/Cellar/onnxruntime/1.23.2/include
-        ML_LIB = -L/opt/homebrew/Cellar/onnxruntime/1.23.2/lib -lonnxruntime
+        # Fallback to macOS Homebrew paths (use brew --prefix for dynamic path)
+        ONNX_PREFIX := $(shell brew --prefix onnxruntime 2>/dev/null)
+        ifneq ($(ONNX_PREFIX),)
+            ML_INCLUDE = -I$(ONNX_PREFIX)/include
+            ML_LIB = -L$(ONNX_PREFIX)/lib -lonnxruntime
+        endif
     endif
 endif
 
