@@ -219,7 +219,8 @@ void removeBackground(const string& inputPath, const string& outputPath, const P
     if (opts.useML) {
         // Use ML-based segmentation
         if (opts.modelPath.empty()) {
-            cerr << "Error: ML mode requires --model <path> to specify model file" << endl;
+            cerr << "Error: ML mode (default) requires --model <path> to specify model file" << endl;
+            cerr << "       Use --grabcut to use the traditional GrabCut algorithm instead" << endl;
             exit(1);
         }
         mask2 = runMLSegmentation(image, opts.modelPath, showVerbose);
@@ -329,6 +330,11 @@ int main(int argc, char** argv) {
     string inputPath, outputPath;
     ProcessingOptions opts;
 
+#ifdef WITH_ML
+    // ML mode is default when compiled with ML support
+    opts.useML = true;
+#endif
+
     // Parse command line arguments
     for (int i = 1; i < argc; i++) {
         string arg = argv[i];
@@ -364,6 +370,8 @@ int main(int argc, char** argv) {
             opts.verbose = true;
         } else if (arg == "--ml") {
             opts.useML = true;
+        } else if (arg == "--grabcut") {
+            opts.useML = false;
         } else if (arg == "--model" && i + 1 < argc) {
             opts.modelPath = argv[++i];
         } else if (arg == "-h" || arg == "--help") {
@@ -385,9 +393,10 @@ int main(int argc, char** argv) {
             cout << "  -h, --help               Show this help message" << endl;
             cout << endl;
 #ifdef WITH_ML
-            cout << "ML Options:" << endl;
-            cout << "  --ml                     Use ML-based segmentation (requires --model)" << endl;
+            cout << "ML Options (ML enabled by default):" << endl;
             cout << "  --model <path>           Path to ONNX model file (U2-Net, RMBG, etc.)" << endl;
+            cout << "  --grabcut                Use GrabCut algorithm instead of ML" << endl;
+            cout << "  --ml                     Force ML mode on (already default)" << endl;
             cout << endl;
 #endif
             cout << "Quality Presets:" << endl;
@@ -407,9 +416,10 @@ int main(int argc, char** argv) {
             cout << "  curl https://example.com/photo.jpg | bg-remover -i - -o -" << endl;
 #ifdef WITH_ML
             cout << endl;
-            cout << "ML mode examples:" << endl;
-            cout << "  bg-remover -i photo.jpg -o output.png --ml --model u2net.onnx" << endl;
-            cout << "  bg-remover -i photo.jpg -o output.png --ml --model rmbg-1.4.onnx" << endl;
+            cout << "ML mode examples (ML is default, just specify model):" << endl;
+            cout << "  bg-remover -i photo.jpg -o output.png --model u2net.onnx" << endl;
+            cout << "  bg-remover -i photo.jpg -o output.png --model rmbg-1.4.onnx" << endl;
+            cout << "  bg-remover -i photo.jpg -o output.png --grabcut  # Use GrabCut instead" << endl;
 #endif
             return 0;
         }
