@@ -4,12 +4,13 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /app
 
-# Install OpenCV and build tools
+# Install OpenCV including contrib modules and build tools
 RUN apt-get update && apt-get install -y \
     g++ \
     make \
     pkg-config \
     libopencv-dev \
+    libopencv-contrib-dev \
     file \
     && rm -rf /var/lib/apt/lists/*
 

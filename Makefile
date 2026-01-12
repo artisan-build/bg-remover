@@ -3,8 +3,7 @@
 
 CXX = g++
 CXXFLAGS = -std=c++11 -O3 -Wall
-OPENCV_LIBS = -lopencv_core -lopencv_imgproc -lopencv_imgcodecs -lopencv_highgui
-OPENCV_FLAGS = `pkg-config --cflags opencv4` $(OPENCV_LIBS)
+OPENCV_FLAGS = `pkg-config --cflags --libs opencv4`
 BINARY = bg-remover
 SOURCE = src/bg-remover.cpp
 

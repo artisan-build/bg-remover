@@ -2,13 +2,15 @@ FROM alpine:3.19
 
 WORKDIR /app
 
-# Install ALL OpenCV dependencies
+# Install ALL OpenCV dependencies including contrib modules
 RUN apk add --no-cache \
     g++ \
     make \
     pkgconfig \
     opencv \
     opencv-dev \
+    opencv-contrib \
+    opencv-contrib-dev \
     file
 
 # Copy source file
