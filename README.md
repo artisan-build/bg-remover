@@ -1,6 +1,6 @@
 # bg-remover
 
-A self-hosted background removal tool using OpenCV's GrabCut algorithm. This C++ implementation works without Python dependencies and supports Alpine, Ubuntu, and macOS platforms.
+A self-hosted background removal tool using OpenCV's GrabCut algorithm with optional ML-powered segmentation. This C++ implementation works without Python dependencies and produces portable, statically-linked binaries.
 
 ## Overview
 
@@ -10,11 +10,13 @@ bg-remover is a command-line tool that removes backgrounds from images, creating
 
 - Pure C++ implementation with OpenCV
 - No Python dependencies required
+- **Statically linked binaries** - no need to install OpenCV on target systems
 - Multi-platform support:
-  - **Alpine Linux (x86_64)** - for Laravel Vapor
-  - **Ubuntu (x86_64)** - for Laravel Forge
-  - **macOS (Universal)** - ARM64 + x86_64 for development
-- GrabCut algorithm for accurate background segmentation
+  - **Ubuntu (x86_64)** - for Laravel Forge/Vapor
+  - **macOS (ARM64)** - for Apple Silicon development
+- Two background removal modes:
+  - **GrabCut** (default) - Fast, works offline, no additional files needed
+  - **ML mode** - Deep learning models (U2-Net, RMBG) for 80-95% better quality on complex images
 - Outputs PNG with alpha channel transparency
 - Docker-based build system for reproducibility
 
@@ -25,16 +27,26 @@ bg-remover is a command-line tool that removes backgrounds from images, creating
 **Option 1: Download Pre-built Binary**
 
 Download the appropriate binary for your platform from the [latest release](https://github.com/artisan-build/bg-remover/releases/latest):
-- `bg-remover-alpine-x86_64` - for Alpine Linux (Laravel Vapor)
-- `bg-remover-ubuntu-x86_64` - for Ubuntu (Laravel Forge)
-- `bg-remover-macos-universal` - for macOS (ARM64 + Intel)
+
+| Platform | Binary | Archive | Notes |
+|----------|--------|---------|-------|
+| Ubuntu/Linux | `bg-remover-ubuntu-x86_64` | `.tar.gz` | Statically linked, portable |
+| macOS | `bg-remover-macos-arm64` | `.tar.gz` | Apple Silicon |
+
+**For basic usage (GrabCut mode):** Download just the binary.
+
+**For ML mode:** Download the `.tar.gz` archive which includes the bundled ONNX Runtime library.
 
 ```bash
-# Make it executable
-chmod +x bg-remover-*
+# Basic usage - download binary only
+wget https://github.com/artisan-build/bg-remover/releases/latest/download/bg-remover-ubuntu-x86_64
+chmod +x bg-remover-ubuntu-x86_64
+./bg-remover-ubuntu-x86_64 -i input.jpg -o output.png
 
-# Run it
-./bg-remover-alpine-x86_64 -i input.jpg -o output.png
+# For ML mode - download and extract archive
+wget https://github.com/artisan-build/bg-remover/releases/latest/download/bg-remover-ubuntu-x86_64.tar.gz
+tar -xzf bg-remover-ubuntu-x86_64.tar.gz
+./bg-remover-ubuntu-x86_64 -i input.jpg -o output.png --ml --model /path/to/u2net.onnx
 ```
 
 **Option 2: Build from Source**
@@ -45,9 +57,9 @@ git clone https://github.com/artisan-build/bg-remover.git
 cd bg-remover
 
 # Build for your platform
-make alpine    # Alpine Linux via Docker
-make ubuntu    # Ubuntu via Docker
+make ubuntu    # Ubuntu via Docker (statically linked)
 make           # Local build (requires OpenCV installed)
+make ML=1      # Local build with ML support (requires OpenCV + ONNX Runtime)
 ```
 
 ### Basic Usage
@@ -64,7 +76,23 @@ That's it! Input goes in, transparent background PNG comes out.
 |--------|-------------|---------|
 | `-i, --input` | Input image path | `-i photo.jpg` |
 | `-o, --output` | Output PNG path | `-o result.png` |
+| `--ml` | Use ML model instead of GrabCut | `--ml` |
+| `--model` | Path to ONNX model file | `--model u2net.onnx` |
 | `-h, --help` | Show help message | `-h` |
+
+### ML Mode
+
+For significantly better results on complex images (hair, transparent objects, complex backgrounds), use ML mode with a deep learning model:
+
+```bash
+# Download a model (e.g., U2-Net or RMBG)
+wget https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net.onnx
+
+# Run with ML mode
+./bg-remover -i input.jpg -o output.png --ml --model u2net.onnx
+```
+
+**Note:** ML mode requires the ONNX Runtime library. When using pre-built binaries, download the `.tar.gz` archive and keep the bundled `libonnxruntime.so` (Linux) or `libonnxruntime.dylib` (macOS) in the same directory as the binary.
 
 ## Integration
 
@@ -118,34 +146,38 @@ See [INTEGRATION.md](INTEGRATION.md) for:
 
 ### Officially Supported Platforms
 
-| Platform | Use Case | Build Command |
-|----------|----------|---------------|
-| Alpine Linux | Laravel Vapor | `make alpine` |
-| Ubuntu | Laravel Forge | `make ubuntu` |
-| macOS | Development | `make` (requires OpenCV via Homebrew) |
+| Platform | Use Case | Build Command | Linking |
+|----------|----------|---------------|---------|
+| Ubuntu | Laravel Forge/Vapor | `make ubuntu` | Static |
+| macOS | Development | `make ML=1` | Dynamic + bundled libs |
 
 ### Build Requirements
 
-**For Docker builds (Alpine/Ubuntu):**
+**For Docker builds (Ubuntu):**
 - Docker installed
 - No other dependencies needed
 
 **For local macOS build:**
 ```bash
-brew install opencv
-make
+brew install opencv onnxruntime
+make ML=1
 ```
 
 ### Build Options
 
 ```bash
 # Build for specific target
-make TARGET=alpine      # Alpine Linux
-make TARGET=ubuntu      # Ubuntu
+make TARGET=ubuntu      # Ubuntu (via Docker, statically linked)
 make TARGET=local       # Local system
 
-# Build with static linking (if supported)
-make TARGET=alpine LINK_MODE=static
+# Build with ML support
+make ML=1               # Enable ONNX Runtime ML models
+
+# Build with static linking
+make LINK_MODE=static   # Static linking (for portable binaries)
+
+# Combine options
+make ML=1 LINK_MODE=static OUTPUT=my-binary
 
 # Clean build artifacts
 make clean
@@ -205,9 +237,14 @@ When adding forks, use this format:
 This software uses the following open source packages:
 
 - [OpenCV](https://opencv.org/) - Apache 2.0 License
-  - Used for image processing and background removal algorithms
-  - Must be installed separately (see Requirements section)
+  - Used for image processing and GrabCut algorithm
+  - Statically linked in release binaries (no installation required)
   - License: https://opencv.org/license/
+
+- [ONNX Runtime](https://onnxruntime.ai/) - MIT License (optional, for ML mode)
+  - Used for running deep learning models
+  - Bundled with `.tar.gz` release archives
+  - License: https://github.com/microsoft/onnxruntime/blob/main/LICENSE
 
 ## License
 
@@ -218,8 +255,7 @@ OpenCV is licensed under the Apache 2.0 License, which is compatible with the MI
 ## Repository Structure
 
 - `src/` - C++ source code
-- `Dockerfile.alpine` - Alpine Linux build configuration
-- `Dockerfile.ubuntu` - Ubuntu build configuration
+- `Dockerfile.ubuntu` - Ubuntu build configuration (static linking)
 - `Makefile` - Build system with multi-platform support
 - `INTEGRATION.md` - Comprehensive integration guide
 - `FORKING.md` - Guide for community platform support
