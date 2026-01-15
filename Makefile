@@ -11,14 +11,24 @@ TARGET ?= local
 LINK_MODE ?= dynamic
 ML ?= 0
 
+# Detect platform
+UNAME_S := $(shell uname -s)
+
 # Linking mode - static vs dynamic
 ifeq ($(LINK_MODE),static)
     # Use static OpenCV libraries via pkg-config --static
     OPENCV_FLAGS = $(shell pkg-config --cflags --libs --static opencv4 2>/dev/null || pkg-config --cflags --libs opencv4)
-    # Statically link GCC runtime libraries for maximum portability
-    LDFLAGS += -static-libgcc -static-libstdc++
-    # Set rpath to find bundled shared libraries (for ONNX Runtime)
-    LDFLAGS += -Wl,-rpath,'$$ORIGIN' -Wl,-rpath,'$$ORIGIN/lib'
+
+    ifeq ($(UNAME_S),Linux)
+        # Linux: Statically link GCC runtime libraries for maximum portability
+        LDFLAGS += -static-libgcc -static-libstdc++
+        # Set rpath to find bundled shared libraries (for ONNX Runtime)
+        LDFLAGS += -Wl,-rpath,'$$ORIGIN' -Wl,-rpath,'$$ORIGIN/lib'
+    endif
+    ifeq ($(UNAME_S),Darwin)
+        # macOS: clang doesn't support -static-libgcc, use rpath for bundled libs
+        LDFLAGS += -Wl,-rpath,@executable_path -Wl,-rpath,@executable_path/lib
+    endif
 else
     OPENCV_FLAGS = $(shell pkg-config --cflags --libs opencv4)
 endif
@@ -37,10 +47,6 @@ ifeq ($(ML),1)
         ifneq ($(ONNX_PREFIX),)
             ML_INCLUDE = -I$(ONNX_PREFIX)/include
             ML_LIB = -L$(ONNX_PREFIX)/lib -lonnxruntime
-            ifeq ($(LINK_MODE),static)
-                # On macOS, set rpath for bundled libraries
-                LDFLAGS += -Wl,-rpath,@executable_path -Wl,-rpath,@executable_path/lib
-            endif
         endif
     endif
 endif
