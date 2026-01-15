@@ -3,7 +3,6 @@
 
 CXX = g++
 CXXFLAGS = -std=c++14 -O3 -Wall
-OPENCV_FLAGS = `pkg-config --cflags --libs opencv4`
 BINARY = bg-remover
 SOURCE = src/bg-remover.cpp
 
@@ -11,6 +10,18 @@ SOURCE = src/bg-remover.cpp
 TARGET ?= local
 LINK_MODE ?= dynamic
 ML ?= 0
+
+# Linking mode - static vs dynamic
+ifeq ($(LINK_MODE),static)
+    # Use static OpenCV libraries via pkg-config --static
+    OPENCV_FLAGS = $(shell pkg-config --cflags --libs --static opencv4 2>/dev/null || pkg-config --cflags --libs opencv4)
+    # Statically link GCC runtime libraries for maximum portability
+    LDFLAGS += -static-libgcc -static-libstdc++
+    # Set rpath to find bundled shared libraries (for ONNX Runtime)
+    LDFLAGS += -Wl,-rpath,'$$ORIGIN' -Wl,-rpath,'$$ORIGIN/lib'
+else
+    OPENCV_FLAGS = $(shell pkg-config --cflags --libs opencv4)
+endif
 
 # ML support (optional)
 ifeq ($(ML),1)
@@ -26,6 +37,10 @@ ifeq ($(ML),1)
         ifneq ($(ONNX_PREFIX),)
             ML_INCLUDE = -I$(ONNX_PREFIX)/include
             ML_LIB = -L$(ONNX_PREFIX)/lib -lonnxruntime
+            ifeq ($(LINK_MODE),static)
+                # On macOS, set rpath for bundled libraries
+                LDFLAGS += -Wl,-rpath,@executable_path -Wl,-rpath,@executable_path/lib
+            endif
         endif
     endif
 endif
@@ -44,12 +59,12 @@ ifeq ($(TARGET),macos)
 endif
 
 ifeq ($(TARGET),local)
-    OUTPUT = $(BINARY)
+    OUTPUT ?= $(BINARY)
 endif
 
-# Linking mode
-ifeq ($(LINK_MODE),static)
-    LDFLAGS += -static
+# Allow OUTPUT to be overridden from command line
+ifdef OUTPUT
+    OUTPUT := $(OUTPUT)
 endif
 
 # Default build (local)
@@ -64,6 +79,8 @@ build-docker-ubuntu:
 	docker build -f Dockerfile.ubuntu -t bg-remover-ubuntu .
 	docker create --name bg-remover-extract bg-remover-ubuntu
 	docker cp bg-remover-extract:/app/$(BINARY) ./bg-remover-ubuntu-x86_64
+	# Also copy bundled ONNX Runtime library if needed
+	docker cp bg-remover-extract:/usr/local/lib/libonnxruntime.so.1.19.2 ./libonnxruntime.so.1.19.2 2>/dev/null || true
 	docker rm bg-remover-extract
 	@echo "✅ Built: bg-remover-ubuntu-x86_64"
 
@@ -74,6 +91,6 @@ ubuntu: build-docker-ubuntu
 
 # Clean
 clean:
-	rm -f $(BINARY) bg-remover-*
+	rm -f $(BINARY) bg-remover-* libonnxruntime.*
 
 .PHONY: all clean ubuntu build-docker-ubuntu
