@@ -18,6 +18,7 @@ jobs:
     name: Build ${{ matrix.platform }}
     runs-on: ${{ matrix.runner }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - platform: ubuntu
@@ -63,7 +64,7 @@ jobs:
         if: matrix.platform == 'macos'
         run: |
           # Build for ARM64 (Apple Silicon) with ML support
-          make ML=1 TARGET=local OUTPUT=${{ matrix.output }}
+          make ML=1 TARGET=local OUTPUT=${{ matrix.output }} CXXFLAGS="-std=c++17 -O3 -Wall"
       
       # Verify binary
       - name: Verify binary
