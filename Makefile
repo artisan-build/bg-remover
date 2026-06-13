@@ -37,6 +37,12 @@ ifeq ($(TARGET),ubuntu)
     OUTPUT = bg-remover-ubuntu-x86_64
 endif
 
+ifeq ($(TARGET),linux-arm64)
+    # Linux ARM64 build (glibc)
+    DOCKERFILE = Dockerfile.ubuntu-arm64
+    OUTPUT = bg-remover-linux-arm64
+endif
+
 ifeq ($(TARGET),macos)
     # macOS build (universal binary)
     CXXFLAGS += -arch arm64 -arch x86_64
@@ -67,13 +73,25 @@ build-docker-ubuntu:
 	docker rm bg-remover-extract
 	@echo "✅ Built: bg-remover-ubuntu-x86_64"
 
+build-docker-linux-arm64:
+	docker build --platform linux/arm64 -f Dockerfile.ubuntu-arm64 -t bg-remover-linux-arm64 .
+	docker create --name bg-remover-arm64-extract bg-remover-linux-arm64
+	docker cp bg-remover-arm64-extract:/app/$(BINARY) ./bg-remover-linux-arm64
+	docker cp bg-remover-arm64-extract:/app/lib ./lib
+	docker rm bg-remover-arm64-extract
+	@echo "✅ Built: bg-remover-linux-arm64"
+
 # Convenience targets
 ubuntu: TARGET = ubuntu
 ubuntu: DOCKERFILE = Dockerfile.ubuntu
 ubuntu: build-docker-ubuntu
 
+linux-arm64: TARGET = linux-arm64
+linux-arm64: DOCKERFILE = Dockerfile.ubuntu-arm64
+linux-arm64: build-docker-linux-arm64
+
 # Clean
 clean:
 	rm -f $(BINARY) bg-remover-*
 
-.PHONY: all clean ubuntu build-docker-ubuntu
+.PHONY: all clean ubuntu linux-arm64 build-docker-ubuntu build-docker-linux-arm64

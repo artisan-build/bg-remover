@@ -1,0 +1,91 @@
+FROM debian:12-slim AS build
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV ONNXRUNTIME_VERSION=1.19.2
+ENV OPENCV_VERSION=4.10.0
+
+WORKDIR /build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    cmake \
+    g++ \
+    make \
+    ninja-build \
+    pkg-config \
+    wget \
+    unzip \
+    binutils \
+    file \
+    zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN wget -q "https://github.com/microsoft/onnxruntime/releases/download/v${ONNXRUNTIME_VERSION}/onnxruntime-linux-aarch64-${ONNXRUNTIME_VERSION}.tgz" \
+    && tar -xzf "onnxruntime-linux-aarch64-${ONNXRUNTIME_VERSION}.tgz" \
+    && mkdir -p /opt/onnxruntime/include/onnxruntime /opt/onnxruntime/lib \
+    && cp -r "onnxruntime-linux-aarch64-${ONNXRUNTIME_VERSION}/include/"* /opt/onnxruntime/include/onnxruntime/ \
+    && cp -r "onnxruntime-linux-aarch64-${ONNXRUNTIME_VERSION}/lib/"* /opt/onnxruntime/lib/ \
+    && rm -rf "onnxruntime-linux-aarch64-${ONNXRUNTIME_VERSION}"*
+
+RUN wget -q "https://github.com/opencv/opencv/archive/${OPENCV_VERSION}.zip" -O opencv.zip \
+    && unzip -q opencv.zip \
+    && cmake -S "opencv-${OPENCV_VERSION}" -B opencv-build -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/opt/opencv-static \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DBUILD_LIST=core,imgcodecs,imgproc \
+        -DBUILD_EXAMPLES=OFF \
+        -DBUILD_opencv_apps=OFF \
+        -DBUILD_PERF_TESTS=OFF \
+        -DBUILD_TESTS=OFF \
+        -DBUILD_DOCS=OFF \
+        -DOPENCV_GENERATE_PKGCONFIG=ON \
+        -DOPENCV_ENABLE_NONFREE=OFF \
+        -DWITH_FFMPEG=OFF \
+        -DWITH_GSTREAMER=OFF \
+        -DWITH_GTK=OFF \
+        -DWITH_OPENEXR=OFF \
+        -DWITH_WEBP=OFF \
+        -DWITH_TIFF=OFF \
+        -DWITH_JASPER=OFF \
+        -DWITH_OPENJPEG=OFF \
+        -DWITH_PROTOBUF=OFF \
+        -DBUILD_JPEG=ON \
+        -DBUILD_PNG=ON \
+        -DBUILD_ZLIB=ON \
+    && cmake --build opencv-build --parallel \
+    && cmake --install opencv-build \
+    && rm -rf opencv.zip "opencv-${OPENCV_VERSION}" opencv-build
+
+WORKDIR /app
+
+COPY src/bg-remover.cpp src/
+
+RUN mkdir -p lib \
+    && cp -L /opt/onnxruntime/lib/libonnxruntime.so.${ONNXRUNTIME_VERSION} lib/libonnxruntime.so.1 \
+    && ln -s "libonnxruntime.so.1" lib/libonnxruntime.so \
+    && g++ -std=c++14 -O3 -Wall -DWITH_ML \
+        -I/opt/onnxruntime/include \
+        src/bg-remover.cpp \
+        -o bg-remover \
+        $(PKG_CONFIG_PATH=/opt/opencv-static/lib/pkgconfig pkg-config --cflags --libs --static opencv4) \
+        -L/app/lib -lonnxruntime \
+        -Wl,-rpath,'$ORIGIN/lib' \
+        -Wl,--enable-new-dtags \
+        -static-libstdc++ \
+        -static-libgcc \
+        -ldl -lpthread -lm \
+    && rm lib/libonnxruntime.so \
+    && strip bg-remover \
+    && file bg-remover \
+    && readelf -d bg-remover \
+    && ldd bg-remover
+
+FROM debian:12-slim
+
+WORKDIR /app
+
+COPY --from=build /app/bg-remover /app/bg-remover
+COPY --from=build /app/lib /app/lib
+
+CMD ["bash"]
