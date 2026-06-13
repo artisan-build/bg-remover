@@ -1,6 +1,9 @@
 name: Build Multi-Platform Binaries
 
 on:
+  pull_request:
+    branches:
+      - main
   push:
     tags:
       - 'v*'
@@ -22,6 +25,12 @@ jobs:
             dockerfile: Dockerfile.ubuntu
             output: bg-remover-ubuntu-x86_64
 
+          - platform: linux-arm64
+            runner: ubuntu-24.04-arm
+            dockerfile: Dockerfile.ubuntu-arm64
+            output: bg-remover-linux-arm64
+            docker_platform: linux/arm64
+
           - platform: macos
             runner: macos-latest
             output: bg-remover-macos-arm64
@@ -34,9 +43,14 @@ jobs:
       - name: Build ${{ matrix.platform }} binary (Docker)
         if: matrix.platform != 'macos'
         run: |
-          docker build -f ${{ matrix.dockerfile }} -t bg-remover-${{ matrix.platform }} .
+          if [ -n "${{ matrix.docker_platform }}" ]; then
+            docker build --platform ${{ matrix.docker_platform }} -f ${{ matrix.dockerfile }} -t bg-remover-${{ matrix.platform }} .
+          else
+            docker build -f ${{ matrix.dockerfile }} -t bg-remover-${{ matrix.platform }} .
+          fi
           docker create --name extract bg-remover-${{ matrix.platform }}
           docker cp extract:/app/bg-remover ./${{ matrix.output }}
+          docker cp extract:/app/lib ./lib 2>/dev/null || true
           docker rm extract
       
       # macOS build (native)
@@ -62,6 +76,9 @@ jobs:
       - name: Generate SHA256 checksum
         run: |
           shasum -a 256 ${{ matrix.output }} > ${{ matrix.output }}.sha256
+          if [ -d lib ]; then
+            find lib -type f ! -name 'libonnxruntime.so' -exec shasum -a 256 {} \; >> ${{ matrix.output }}.sha256
+          fi
           cat ${{ matrix.output }}.sha256
       
       # Upload artifacts
@@ -72,6 +89,7 @@ jobs:
           path: |
             ${{ matrix.output }}
             ${{ matrix.output }}.sha256
+            lib/**
   
   release:
     name: Create Release
@@ -108,6 +126,12 @@ jobs:
           name: bg-remover-macos-arm64
           path: ./dist
 
+      - name: Download Linux ARM64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: bg-remover-linux-arm64
+          path: ./dist
+
       # Create combined checksums file
       - name: Create checksums.txt
         run: |
@@ -123,6 +147,8 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
           files: |
             dist/bg-remover-ubuntu-x86_64
+            dist/bg-remover-linux-arm64
+            dist/lib/libonnxruntime.so.1
             dist/bg-remover-macos-arm64
             dist/checksums.txt
           draft: false
@@ -138,6 +164,7 @@ jobs:
             | Platform | Binary | ML Support | Use Case |
             |----------|--------|------------|----------|
             | Ubuntu | `bg-remover-ubuntu-x86_64` | ✅ GrabCut + ML | Laravel Vapor & Forge |
+            | Linux ARM64 | `bg-remover-linux-arm64` | ✅ GrabCut + ML | Laravel Cloud workers |
             | macOS | `bg-remover-macos-arm64` | ✅ GrabCut + ML | Development (Apple Silicon) |
 
             ### Installation
@@ -145,6 +172,10 @@ jobs:
             ```bash
             # Download for your platform
             wget https://github.com/artisan-build/bg-remover/releases/download/${{ steps.version.outputs.tag }}/bg-remover-ubuntu-x86_64
+
+            # Linux ARM64 also needs the co-located ONNX Runtime library:
+            # mkdir -p lib
+            # wget -O lib/libonnxruntime.so.1 https://github.com/artisan-build/bg-remover/releases/download/${{ steps.version.outputs.tag }}/libonnxruntime.so.1
 
             # Verify checksum
             wget https://github.com/artisan-build/bg-remover/releases/download/${{ steps.version.outputs.tag }}/checksums.txt
