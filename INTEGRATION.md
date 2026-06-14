@@ -1,51 +1,62 @@
 # BG-Remover Integration Guide
 
-This document explains how to integrate the bg-remover background removal tool into your application.
+This document explains how to integrate the `bg-remover` CLI into an application or deployment pipeline.
 
 ## Overview
 
-`bg-remover` is a command-line tool that removes backgrounds from images using OpenCV's GrabCut algorithm. It accepts an input image and outputs a PNG file with a transparent background.
+`bg-remover` removes image backgrounds and writes a PNG with an alpha channel. Official binaries default to ML segmentation and require `--model <path>`. Use `--grabcut` to opt out to OpenCV GrabCut.
 
 ## Prerequisites
 
-- The `bg-remover` binary must be available on your system
-- Input images should be in common formats (JPEG, PNG, BMP, TIFF, etc.)
-- Sufficient disk space for output files (PNG with alpha channel)
+- A supported `bg-remover` binary.
+- Linux x86_64 or Linux arm64 runtime with glibc >= 2.34.
+- For Linux, ONNX Runtime 1.19.2 `libonnxruntime.so.1` matching the binary architecture.
+- For macOS development, `brew install opencv onnxruntime pkg-config`.
+- Input images in common OpenCV-readable formats such as JPEG, PNG, BMP, or TIFF.
+
+Linux binaries statically bundle OpenCV, libstdc++, and libgcc. They still dynamically link `libonnxruntime.so.1`, resolved via `$ORIGIN:$ORIGIN/lib`; place that file next to the binary or in a sibling `lib/` directory. The ONNX Runtime library is required at process load time even when running `--grabcut`.
 
 ## Command-Line Interface
 
-### Basic Usage
-
 ```bash
-./bg-remover -i <input_path> -o <output_path>
-```
+# Default ML mode
+./bg-remover -i <input_path> -o <output_path> --model <model_path>
 
-### Parameters
+# GrabCut opt-out mode
+./bg-remover -i <input_path> -o <output_path> --grabcut
+```
 
 | Parameter | Required | Description | Example |
 |-----------|----------|-------------|---------|
-| `-i` | Yes | Path to input image file | `-i input.jpg` |
-| `-o` | Yes | Path to output PNG file | `-o output.png` |
+| `-i, --input` | Yes | Input image path, or `-` for stdin | `-i input.jpg` |
+| `-o, --output` | Yes | Output PNG path, or `-` for stdout | `-o output.png` |
+| `--model` | For ML mode | ONNX model path | `--model u2net.onnx` |
+| `--grabcut` | No | Use OpenCV GrabCut instead of ML | `--grabcut` |
+| `--ml` | No | No-op in official binaries because ML is already default | `--ml` |
+| `-q, --quality` | No | GrabCut preset: `fast`, `balanced`, `quality` | `-q quality` |
+| `-n, --iterations` | No | GrabCut iterations, 1-20 | `-n 12` |
+| `-m, --margin` | No | GrabCut edge margin/inset in pixels | `-m 20` |
+| `-e, --edge-mode` | No | GrabCut edge refinement: `blur`, `bilateral`, `guided` | `-e guided` |
 
-### Exit Codes
+## Exit Codes
 
 | Code | Meaning |
 |------|---------|
-| 0 | Success - background removed and saved |
-| Non-zero | Error occurred (file not found, invalid image, etc.) |
+| 0 | Success; background removed and saved |
+| Non-zero | Error occurred, such as missing input, invalid image, missing model, or missing runtime library |
 
 ## Integration Examples
 
-### 1. Shell Script Integration
+### Shell Script
 
 ```bash
 #!/bin/bash
 
 INPUT_IMAGE="$1"
 OUTPUT_IMAGE="$2"
+MODEL_PATH="/app/models/u2net.onnx"
 
-# Run bg-remover
-./bg-remover -i "$INPUT_IMAGE" -o "$OUTPUT_IMAGE"
+./bg-remover -i "$INPUT_IMAGE" -o "$OUTPUT_IMAGE" --model "$MODEL_PATH"
 
 if [ $? -eq 0 ]; then
     echo "Background removed successfully: $OUTPUT_IMAGE"
@@ -55,325 +66,130 @@ else
 fi
 ```
 
-### 2. Python Integration
+### Python
 
 ```python
-import subprocess
 import os
-from pathlib import Path
+import subprocess
 
-def remove_background(input_path, output_path, bg_remover_binary="./bg-remover"):
-    """
-    Remove background from an image using bg-remover.
-
-    Args:
-        input_path: Path to input image
-        output_path: Path to output PNG file
-        bg_remover_binary: Path to bg-remover executable
-
-    Returns:
-        bool: True if successful, False otherwise
-    """
-    # Validate input exists
+def remove_background(input_path, output_path, model_path, binary_path="./bg-remover"):
     if not os.path.exists(input_path):
         raise FileNotFoundError(f"Input file not found: {input_path}")
 
-    # Ensure output directory exists
     output_dir = os.path.dirname(output_path)
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
 
-    # Run bg-remover
-    try:
-        result = subprocess.run(
-            [bg_remover_binary, "-i", input_path, "-o", output_path],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        return os.path.exists(output_path)
-    except subprocess.CalledProcessError as e:
-        print(f"Error: {e.stderr}")
-        return False
+    subprocess.run([
+        binary_path,
+        "-i", input_path,
+        "-o", output_path,
+        "--model", model_path,
+    ], check=True)
 
-# Example usage
-if __name__ == "__main__":
-    success = remove_background("photo.jpg", "photo_no_bg.png")
-    if success:
-        print("Background removed successfully!")
+    return os.path.exists(output_path)
 ```
 
-### 3. Node.js Integration
+### Node.js
 
 ```javascript
 const { spawn } = require('child_process');
-const fs = require('fs').promises;
-const path = require('path');
 
-/**
- * Remove background from an image using bg-remover
- * @param {string} inputPath - Path to input image
- * @param {string} outputPath - Path to output PNG file
- * @param {string} binaryPath - Path to bg-remover binary (default: './bg-remover')
- * @returns {Promise<boolean>} True if successful
- */
-async function removeBackground(inputPath, outputPath, binaryPath = './bg-remover') {
-    return new Promise((resolve, reject) => {
-        // Ensure output directory exists
-        const outputDir = path.dirname(outputPath);
-        if (outputDir) {
-            fs.mkdir(outputDir, { recursive: true }).catch(() => {});
-        }
+function removeBackground(inputPath, outputPath, modelPath, binaryPath = './bg-remover') {
+  return new Promise((resolve, reject) => {
+    const child = spawn(binaryPath, [
+      '-i', inputPath,
+      '-o', outputPath,
+      '--model', modelPath,
+    ]);
 
-        const process = spawn(binaryPath, ['-i', inputPath, '-o', outputPath]);
-
-        let stderr = '';
-
-        process.stderr.on('data', (data) => {
-            stderr += data.toString();
-        });
-
-        process.on('close', (code) => {
-            if (code === 0) {
-                resolve(true);
-            } else {
-                reject(new Error(`bg-remover failed with code ${code}: ${stderr}`));
-            }
-        });
-
-        process.on('error', (err) => {
-            reject(new Error(`Failed to start bg-remover: ${err.message}`));
-        });
+    let stderr = '';
+    child.stderr.on('data', data => { stderr += data.toString(); });
+    child.on('close', code => {
+      code === 0 ? resolve(true) : reject(new Error(`bg-remover failed: ${stderr}`));
     });
+    child.on('error', reject);
+  });
 }
-
-// Example usage
-removeBackground('photo.jpg', 'photo_no_bg.png')
-    .then(() => console.log('Background removed successfully!'))
-    .catch(err => console.error('Error:', err.message));
 ```
 
-### 4. PHP Integration
+### PHP / Laravel
 
 ```php
-<?php
+use Illuminate\Support\Facades\Process;
 
-/**
- * Remove background from an image using bg-remover
- *
- * @param string $inputPath Path to input image
- * @param string $outputPath Path to output PNG file
- * @param string $binaryPath Path to bg-remover binary
- * @return bool True if successful, false otherwise
- */
-function removeBackground($inputPath, $outputPath, $binaryPath = './bg-remover') {
-    // Validate input
-    if (!file_exists($inputPath)) {
-        throw new Exception("Input file not found: $inputPath");
-    }
-
-    // Ensure output directory exists
-    $outputDir = dirname($outputPath);
-    if ($outputDir && !is_dir($outputDir)) {
-        mkdir($outputDir, 0755, true);
-    }
-
-    // Escape arguments for shell safety
-    $cmd = sprintf(
-        '%s -i %s -o %s',
-        escapeshellarg($binaryPath),
-        escapeshellarg($inputPath),
-        escapeshellarg($outputPath)
-    );
-
-    // Execute command
-    exec($cmd, $output, $returnCode);
-
-    return $returnCode === 0 && file_exists($outputPath);
-}
-
-// Example usage
-try {
-    $success = removeBackground('photo.jpg', 'photo_no_bg.png');
-    if ($success) {
-        echo "Background removed successfully!\n";
-    } else {
-        echo "Failed to remove background\n";
-    }
-} catch (Exception $e) {
-    echo "Error: " . $e->getMessage() . "\n";
-}
-?>
+Process::run([
+    base_path('bin/bg-remover-linux-arm64'),
+    '-i', $inputPath,
+    '-o', $outputPath,
+    '--model', base_path('models/u2net.onnx'),
+])->throw();
 ```
 
-### 5. Go Integration
+### Go
 
 ```go
-package main
-
-import (
-    "fmt"
-    "os"
-    "os/exec"
-    "path/filepath"
+cmd := exec.Command(
+    "./bg-remover",
+    "-i", inputPath,
+    "-o", outputPath,
+    "--model", modelPath,
 )
-
-// RemoveBackground removes the background from an image using bg-remover
-func RemoveBackground(inputPath, outputPath, binaryPath string) error {
-    // Validate input exists
-    if _, err := os.Stat(inputPath); os.IsNotExist(err) {
-        return fmt.Errorf("input file not found: %s", inputPath)
-    }
-
-    // Ensure output directory exists
-    outputDir := filepath.Dir(outputPath)
-    if outputDir != "" {
-        if err := os.MkdirAll(outputDir, 0755); err != nil {
-            return fmt.Errorf("failed to create output directory: %w", err)
-        }
-    }
-
-    // Run bg-remover
-    cmd := exec.Command(binaryPath, "-i", inputPath, "-o", outputPath)
-    output, err := cmd.CombinedOutput()
-
-    if err != nil {
-        return fmt.Errorf("bg-remover failed: %w\nOutput: %s", err, output)
-    }
-
-    // Verify output file was created
-    if _, err := os.Stat(outputPath); os.IsNotExist(err) {
-        return fmt.Errorf("output file not created: %s", outputPath)
-    }
-
-    return nil
-}
-
-func main() {
-    err := RemoveBackground("photo.jpg", "photo_no_bg.png", "./bg-remover")
-    if err != nil {
-        fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-        os.Exit(1)
-    }
-    fmt.Println("Background removed successfully!")
+if output, err := cmd.CombinedOutput(); err != nil {
+    return fmt.Errorf("bg-remover failed: %w\n%s", err, output)
 }
 ```
 
-### 6. Docker Container Integration
+### GrabCut Mode
+
+```bash
+./bg-remover -i input.jpg -o output.png --grabcut -q quality -n 12 -e guided
+```
+
+GrabCut does not use a model, but official Linux binaries still need `libonnxruntime.so.1` to be present because it is a load-time dependency.
+
+## Docker Container Integration
+
+Use a glibc-based image such as Debian 12 or Ubuntu 22.04+. The official Linux binary does not need OpenCV packages installed.
 
 ```dockerfile
-FROM alpine:3.19
+FROM debian:12-slim
 
-# Copy the bg-remover binary into the container
-COPY bg-remover /usr/local/bin/bg-remover
+COPY bg-remover-ubuntu-x86_64 /usr/local/bin/bg-remover
+COPY libonnxruntime.so.1 /usr/local/bin/libonnxruntime.so.1
 RUN chmod +x /usr/local/bin/bg-remover
 
-# Install OpenCV runtime libraries (not dev packages)
-RUN apk add --no-cache opencv libstdc++
-
-# Set working directory
 WORKDIR /app
-
-# Default command
 ENTRYPOINT ["/usr/local/bin/bg-remover"]
-CMD ["-i", "input.jpg", "-o", "output.png"]
+CMD ["-i", "input.jpg", "-o", "output.png", "--model", "models/u2net.onnx"]
 ```
 
-Run with:
-```bash
-docker run -v $(pwd):/app your-image -i /app/input.jpg -o /app/output.png
-```
+## Laravel Cloud Deployment
 
-### 7. REST API Wrapper (Python Flask Example)
+Laravel Cloud workers are arm64 Graviton hosts in a managed runtime, not a user-provided container. Use the official Linux arm64 binary directly.
 
-```python
-from flask import Flask, request, send_file, jsonify
-import subprocess
-import os
-import uuid
-from werkzeug.utils import secure_filename
+Ship these files with your application:
 
-app = Flask(__name__)
-UPLOAD_FOLDER = '/tmp/bg-remover-uploads'
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+- `bg-remover-linux-arm64`
+- `libonnxruntime.so.1` from `onnxruntime-linux-aarch64-1.19.2.tgz`, next to the binary or under `lib/`
+- Your ONNX model file, if using default ML mode
 
-@app.route('/remove-background', methods=['POST'])
-def remove_background_api():
-    """
-    API endpoint to remove background from uploaded image.
+Run `chmod +x bg-remover-linux-arm64` during deployment, then invoke the binary from your worker process with `--model <path>` or `--grabcut`.
 
-    POST /remove-background
-    Form data: image file
-    Returns: PNG file with transparent background
-    """
-    if 'image' not in request.files:
-        return jsonify({'error': 'No image provided'}), 400
+## Laravel Forge And Vapor Notes
 
-    file = request.files['image']
-    if file.filename == '':
-        return jsonify({'error': 'Empty filename'}), 400
-
-    # Generate unique filenames
-    file_id = str(uuid.uuid4())
-    input_path = os.path.join(UPLOAD_FOLDER, f"{file_id}_input")
-    output_path = os.path.join(UPLOAD_FOLDER, f"{file_id}_output.png")
-
-    try:
-        # Save uploaded file
-        file.save(input_path)
-
-        # Run bg-remover
-        result = subprocess.run(
-            ['./bg-remover', '-i', input_path, '-o', output_path],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-
-        # Return the processed image
-        return send_file(output_path, mimetype='image/png')
-
-    except subprocess.CalledProcessError as e:
-        return jsonify({'error': 'Background removal failed', 'details': e.stderr}), 500
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-    finally:
-        # Cleanup
-        if os.path.exists(input_path):
-            os.remove(input_path)
-        if os.path.exists(output_path):
-            os.remove(output_path)
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
-```
-
-## Performance Considerations
-
-### Processing Time
-- Depends on image resolution and complexity
-- Typical processing: 1-5 seconds for standard photos (1-5 MP)
-- Larger images (10+ MP) may take 10-30 seconds
-
-### Resource Usage
-- **Memory**: Proportional to image size (~3-4x the input file size in RAM)
-- **CPU**: Single-threaded OpenCV processing
-- **Disk**: Output PNG files are typically larger than JPEG inputs due to alpha channel
-
-### Optimization Tips
-1. **Resize large images** before processing if high resolution isn't needed
-2. **Process in parallel** - bg-remover can handle multiple simultaneous executions
-3. **Use temp storage** for intermediate files to avoid cluttering the filesystem
-4. **Set timeouts** to handle edge cases where processing takes too long
+- Forge on Ubuntu 22.04+ can run `bg-remover-ubuntu-x86_64` directly with the x64 ONNX Runtime library co-located.
+- Vapor container images should use a glibc base if they use the official Linux binaries. Alpine/musl is not an official target in the current build pipeline.
+- Laravel Cloud should use the arm64 guidance above and does not require a custom container.
 
 ## Batch Processing Example
 
 ```bash
 #!/bin/bash
-# Process all images in a directory
 
 INPUT_DIR="./images"
 OUTPUT_DIR="./processed"
+MODEL_PATH="./models/u2net.onnx"
 
 mkdir -p "$OUTPUT_DIR"
 
@@ -382,41 +198,37 @@ for img in "$INPUT_DIR"/*.{jpg,jpeg,png}; do
     filename=$(basename "$img")
     name="${filename%.*}"
 
-    echo "Processing: $filename"
-    ./bg-remover -i "$img" -o "$OUTPUT_DIR/${name}_no_bg.png"
+    ./bg-remover -i "$img" -o "$OUTPUT_DIR/${name}_no_bg.png" --model "$MODEL_PATH"
 done
-
-echo "Batch processing complete!"
 ```
 
 ## Error Handling
 
-Common errors and solutions:
-
 | Error | Cause | Solution |
 |-------|-------|----------|
-| File not found | Invalid input path | Check file exists and path is correct |
+| `libonnxruntime.so.1` not found | Missing dynamic ONNX Runtime library | Place the arch-matching library next to the binary or in `./lib/` |
+| `GLIBC_2.34 not found` | Runtime glibc is too old | Use Debian 12, Ubuntu 22.04+, or another glibc >= 2.34 environment |
+| ML mode requires `--model` | Default ML mode needs an ONNX model | Pass `--model <path>` or use `--grabcut` |
+| File not found | Invalid input path | Check that the file exists and the path is correct |
 | Cannot write output | Permission denied or invalid output path | Verify write permissions and directory exists |
 | Invalid image format | Corrupted or unsupported file | Validate input is a valid image file |
-| Segmentation fault | Extremely large image or insufficient memory | Reduce image size or increase available RAM |
 
 ## Output Format
 
 - **Format**: PNG with alpha channel (RGBA)
 - **Bit depth**: 8-bit per channel
 - **Transparency**: Full alpha channel support (0-255)
-- **Compression**: PNG default compression
 
 ## Limitations
 
-1. **Single subject focus**: Works best with single subjects on contrasting backgrounds
-2. **Complex backgrounds**: May struggle with intricate details (hair, fur) against similar-colored backgrounds
-3. **Static algorithm**: Uses predefined GrabCut parameters (no runtime tuning)
-4. **No batch mode**: Must call binary separately for each image
+1. Default ML mode requires a compatible ONNX segmentation model.
+2. Official Linux binaries need `libonnxruntime.so.1` even for `--grabcut`.
+3. GrabCut works best with single subjects on contrasting backgrounds.
+4. The CLI does not include native batch mode; call it once per image.
 
 ## Support
 
-For issues or questions about this tool, contact the repository maintainer or open an issue on the project repository.
+Open binary package issues in [artisan-build/bg-remover](https://github.com/artisan-build/bg-remover).
 
 ## License
 

@@ -38,7 +38,7 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       
       # Linux build (Ubuntu) via Docker
       - name: Build ${{ matrix.platform }} binary (Docker)
@@ -77,20 +77,16 @@ jobs:
       - name: Generate SHA256 checksum
         run: |
           shasum -a 256 ${{ matrix.output }} > ${{ matrix.output }}.sha256
-          if [ -d lib ]; then
-            find lib -type f ! -name 'libonnxruntime.so' -exec shasum -a 256 {} \; >> ${{ matrix.output }}.sha256
-          fi
           cat ${{ matrix.output }}.sha256
       
       # Upload artifacts
       - name: Upload binary artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.output }}
           path: |
             ${{ matrix.output }}
             ${{ matrix.output }}.sha256
-            lib/**
   
   release:
     name: Create Release
@@ -102,7 +98,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # Set version variable
       - name: Set version
@@ -116,19 +112,19 @@ jobs:
 
       # Download all artifacts
       - name: Download Ubuntu binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: bg-remover-ubuntu-x86_64
           path: ./dist
 
       - name: Download macOS binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: bg-remover-macos-arm64
           path: ./dist
 
       - name: Download Linux ARM64 binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: bg-remover-linux-arm64
           path: ./dist
@@ -143,13 +139,12 @@ jobs:
 
       # Create GitHub Release
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           files: |
             dist/bg-remover-ubuntu-x86_64
             dist/bg-remover-linux-arm64
-            dist/lib/libonnxruntime.so.1
             dist/bg-remover-macos-arm64
             dist/checksums.txt
           draft: false
@@ -158,25 +153,27 @@ jobs:
           body: |
             ## BG Remover ${{ steps.version.outputs.tag }}
 
-            Multi-platform background removal binaries with **ML support enabled**. Use optimized OpenCV GrabCut by default, or switch to deep learning models (U2-Net, RMBG) with `--ml` flag for 80-95% better quality on complex images.
+            Multi-platform background removal binaries with **ML mode enabled by default**. Default ML mode requires `--model <path>`; pass `--grabcut` to opt out to OpenCV GrabCut. `--ml` is accepted but is a no-op because ML is already the default.
 
             ### Downloads
 
-            | Platform | Binary | ML Support | Use Case |
-            |----------|--------|------------|----------|
-            | Ubuntu | `bg-remover-ubuntu-x86_64` | ✅ GrabCut + ML | Laravel Vapor & Forge |
-            | Linux ARM64 | `bg-remover-linux-arm64` | ✅ GrabCut + ML | Laravel Cloud workers |
-            | macOS | `bg-remover-macos-arm64` | ✅ GrabCut + ML | Development (Apple Silicon) |
+            | Platform | Binary | Runtime Library | Use Case |
+            |----------|--------|-----------------|----------|
+            | Linux x86_64 | `bg-remover-ubuntu-x86_64` | ONNX Runtime `onnxruntime-linux-x64-1.19.2` | Forge / glibc servers |
+            | Linux ARM64 | `bg-remover-linux-arm64` | ONNX Runtime `onnxruntime-linux-aarch64-1.19.2` | Laravel Cloud workers |
+            | macOS ARM64 | `bg-remover-macos-arm64` | Homebrew `opencv` and `onnxruntime` | Development (Apple Silicon) |
 
             ### Installation
 
             ```bash
-            # Download for your platform
+            # Download the binary for your platform
             wget https://github.com/artisan-build/bg-remover/releases/download/${{ steps.version.outputs.tag }}/bg-remover-ubuntu-x86_64
 
-            # Linux ARM64 also needs the co-located ONNX Runtime library:
-            # mkdir -p lib
-            # wget -O lib/libonnxruntime.so.1 https://github.com/artisan-build/bg-remover/releases/download/${{ steps.version.outputs.tag }}/libonnxruntime.so.1
+            # Linux also needs the arch-matching ONNX Runtime 1.19.2 library.
+            # Download one from https://github.com/microsoft/onnxruntime/releases/tag/v1.19.2:
+            # - onnxruntime-linux-x64-1.19.2.tgz for bg-remover-ubuntu-x86_64
+            # - onnxruntime-linux-aarch64-1.19.2.tgz for bg-remover-linux-arm64
+            # Then place libonnxruntime.so.1 next to the binary or under ./lib/.
 
             # Verify checksum
             wget https://github.com/artisan-build/bg-remover/releases/download/${{ steps.version.outputs.tag }}/checksums.txt
@@ -185,12 +182,16 @@ jobs:
             # Make executable
             chmod +x bg-remover-ubuntu-x86_64
 
-            # Run with GrabCut (default)
-            ./bg-remover-ubuntu-x86_64 -i input.jpg -o output.png
+            # Run with ML mode (default)
+            ./bg-remover-ubuntu-x86_64 -i input.jpg -o output.png --model /path/to/u2net.onnx
 
-            # Run with ML models for better quality
-            ./bg-remover-ubuntu-x86_64 -i input.jpg -o output.png --ml --model /path/to/u2net.onnx
+            # Opt out to GrabCut; libonnxruntime.so.1 is still required at load time
+            ./bg-remover-ubuntu-x86_64 -i input.jpg -o output.png --grabcut
             ```
+
+            ### Runtime Notes
+
+            Linux binaries statically bundle OpenCV, libstdc++, and libgcc. They dynamically load only `libonnxruntime.so.1` plus glibc system libraries, with RUNPATH `$ORIGIN:$ORIGIN/lib`. The Linux glibc floor is 2.34. macOS builds are development-only and dynamically link Homebrew OpenCV and ONNX Runtime.
 
             ### Checksums
 
