@@ -30,13 +30,24 @@ Linux binaries statically bundle OpenCV, libstdc++, and libgcc. They still dynam
 |-----------|----------|-------------|---------|
 | `-i, --input` | Yes | Input image path, or `-` for stdin | `-i input.jpg` |
 | `-o, --output` | Yes | Output PNG path, or `-` for stdout | `-o output.png` |
-| `--model` | For ML mode | ONNX model path | `--model u2net.onnx` |
+| `--model` | For ML mode | ONNX model path | `--model isnet-general-use.onnx` |
+| `--mean` | No | Input normalization mean, RGB (default `0.5,0.5,0.5`) | `--mean 0.485,0.456,0.406` |
+| `--std` | No | Input normalization std, RGB (default `1.0,1.0,1.0`) | `--std 0.229,0.224,0.225` |
 | `--grabcut` | No | Use OpenCV GrabCut instead of ML | `--grabcut` |
 | `--ml` | No | No-op in official binaries because ML is already default | `--ml` |
 | `-q, --quality` | No | GrabCut preset: `fast`, `balanced`, `quality` | `-q quality` |
 | `-n, --iterations` | No | GrabCut iterations, 1-20 | `-n 12` |
 | `-m, --margin` | No | GrabCut edge margin/inset in pixels | `-m 20` |
 | `-e, --edge-mode` | No | GrabCut edge refinement: `blur`, `bilateral`, `guided` | `-e guided` |
+
+### Models and normalization
+
+Each release bundles a recommended model, **`isnet-general-use.onnx`**, as a release asset. The
+binary's default normalization (`--mean 0.5,0.5,0.5 --std 1.0,1.0,1.0`) matches it, so
+`--model isnet-general-use.onnx` works with no extra flags. The ML path feeds the model RGB pixels
+scaled to `[0,1]`, applies `(x - mean) / std`, and min-max normalizes the output mask. For a
+different model, pass its expected normalization — e.g. U2-Net (ImageNet):
+`--model u2net.onnx --mean 0.485,0.456,0.406 --std 0.229,0.224,0.225`.
 
 ## Exit Codes
 

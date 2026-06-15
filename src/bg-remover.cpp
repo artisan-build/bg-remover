@@ -1,6 +1,7 @@
 #include <opencv2/opencv.hpp>
 #include <iostream>
 #include <string>
+#include <cstdio>
 
 // Check if opencv_contrib is available
 #if CV_VERSION_MAJOR >= 3 && __has_include(<opencv2/ximgproc.hpp>)
@@ -25,6 +26,10 @@ struct ProcessingOptions {
     double kernelScale = 1.0;
     bool useML = false;
     string modelPath = "";
+    // ML input normalization (RGB order, applied after scaling to [0,1]).
+    // Defaults match the bundled ISNet model (mean 0.5, std 1.0).
+    double mean[3] = {0.5, 0.5, 0.5};
+    double stdv[3] = {1.0, 1.0, 1.0};
 };
 
 // Apply quality preset to options
@@ -81,7 +86,7 @@ Mat loadImage(const string& path) {
 
 #ifdef WITH_ML
 // Run ML-based segmentation using ONNX model
-Mat runMLSegmentation(const Mat& image, const string& modelPath, bool verbose) {
+Mat runMLSegmentation(const Mat& image, const string& modelPath, const double mean[3], const double stdv[3], bool verbose) {
     try {
         // Initialize ONNX Runtime
         Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "bg-remover");
@@ -133,18 +138,23 @@ Mat runMLSegmentation(const Mat& image, const string& modelPath, bool verbose) {
             cerr << "Using input dimensions: " << batch_size << "x" << channels << "x" << input_height << "x" << input_width << endl;
         }
 
-        // Preprocess: resize and normalize
-        Mat resized;
+        // Preprocess: OpenCV loads BGR but the segmentation models expect RGB, so convert
+        // channel order before building the tensor. Resize, scale to [0,1], then apply
+        // per-channel (x - mean) / std normalization in RGB order.
+        Mat resized, rgb;
         resize(image, resized, Size(input_width, input_height));
-        resized.convertTo(resized, CV_32FC3, 1.0 / 255.0);
+        cvtColor(resized, rgb, COLOR_BGR2RGB);
+        rgb.convertTo(rgb, CV_32FC3, 1.0 / 255.0);
 
         // Convert to tensor format (NCHW: batch, channels, height, width)
         vector<float> input_tensor_values(batch_size * channels * input_height * input_width);
         for (int c = 0; c < channels; c++) {
+            float channel_mean = (float) mean[c];
+            float channel_std = (float) (stdv[c] != 0.0 ? stdv[c] : 1.0);
             for (int h = 0; h < input_height; h++) {
                 for (int w = 0; w < input_width; w++) {
                     input_tensor_values[c * input_height * input_width + h * input_width + w] =
-                        resized.at<Vec3f>(h, w)[c];
+                        (rgb.at<Vec3f>(h, w)[c] - channel_mean) / channel_std;
                 }
             }
         }
@@ -215,9 +225,20 @@ Mat runMLSegmentation(const Mat& image, const string& modelPath, bool verbose) {
             exit(1);
         }
 
+        // Min-max normalize the raw output to [0,1] before scaling. This is robust across
+        // model exports (logits or probabilities) and matches the reference rembg pipeline.
+        double mask_min = 0.0, mask_max = 0.0;
+        minMaxLoc(mask, &mask_min, &mask_max);
+        Mat norm_mask;
+        if (mask_max - mask_min > 1e-6) {
+            mask.convertTo(norm_mask, CV_32F, 1.0 / (mask_max - mask_min), -mask_min / (mask_max - mask_min));
+        } else {
+            mask.convertTo(norm_mask, CV_32F);
+        }
+
         // Resize mask back to original size
         Mat result_mask;
-        resize(mask, result_mask, image.size());
+        resize(norm_mask, result_mask, image.size());
 
         // Convert to 8-bit (0-255)
         result_mask.convertTo(result_mask, CV_8UC1, 255.0);
@@ -295,7 +316,7 @@ void removeBackground(const string& inputPath, const string& outputPath, const P
             cerr << "       Use --grabcut to use the traditional GrabCut algorithm instead" << endl;
             exit(1);
         }
-        mask2 = runMLSegmentation(image, opts.modelPath, showVerbose);
+        mask2 = runMLSegmentation(image, opts.modelPath, opts.mean, opts.stdv, showVerbose);
     } else
 #else
     if (opts.useML) {
@@ -446,6 +467,16 @@ int main(int argc, char** argv) {
             opts.useML = false;
         } else if (arg == "--model" && i + 1 < argc) {
             opts.modelPath = argv[++i];
+        } else if (arg == "--mean" && i + 1 < argc) {
+            if (sscanf(argv[++i], "%lf,%lf,%lf", &opts.mean[0], &opts.mean[1], &opts.mean[2]) != 3) {
+                cerr << "Error: --mean expects three comma-separated values, e.g. 0.5,0.5,0.5" << endl;
+                return 1;
+            }
+        } else if (arg == "--std" && i + 1 < argc) {
+            if (sscanf(argv[++i], "%lf,%lf,%lf", &opts.stdv[0], &opts.stdv[1], &opts.stdv[2]) != 3) {
+                cerr << "Error: --std expects three comma-separated values, e.g. 1.0,1.0,1.0" << endl;
+                return 1;
+            }
         } else if (arg == "-h" || arg == "--help") {
             cout << "Background Remover CLI" << endl;
             cout << "Usage: bg-remover -i <input> -o <output> [options]" << endl;
@@ -466,7 +497,9 @@ int main(int argc, char** argv) {
             cout << endl;
 #ifdef WITH_ML
             cout << "ML Options (ML enabled by default):" << endl;
-            cout << "  --model <path>           Path to ONNX model file (U2-Net, RMBG, etc.)" << endl;
+            cout << "  --model <path>           Path to ONNX model file (U2-Net, ISNet, etc.)" << endl;
+            cout << "  --mean <r,g,b>           Input normalization mean, RGB (default: 0.5,0.5,0.5)" << endl;
+            cout << "  --std <r,g,b>            Input normalization std, RGB (default: 1.0,1.0,1.0)" << endl;
             cout << "  --grabcut                Use GrabCut algorithm instead of ML" << endl;
             cout << "  --ml                     Force ML mode on (already default)" << endl;
             cout << endl;
