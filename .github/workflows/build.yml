@@ -129,6 +129,17 @@ jobs:
           name: bg-remover-linux-arm64
           path: ./dist
 
+      # Bundle the recommended ML model so consumers fetch a versioned, first-party asset
+      # (no third-party dependency at deploy time). ISNet general-use is the default model;
+      # the binary's default normalization (mean 0.5 / std 1.0) matches it.
+      - name: Bundle ML model (ISNet general-use)
+        run: |
+          cd dist
+          curl -fsSL -o isnet-general-use.onnx \
+            "https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx"
+          sha256sum isnet-general-use.onnx > isnet-general-use.onnx.sha256
+          ls -la isnet-general-use.onnx
+
       # Create combined checksums file
       - name: Create checksums.txt
         run: |
@@ -146,6 +157,7 @@ jobs:
             dist/bg-remover-ubuntu-x86_64
             dist/bg-remover-linux-arm64
             dist/bg-remover-macos-arm64
+            dist/isnet-general-use.onnx
             dist/checksums.txt
           draft: false
           prerelease: false
