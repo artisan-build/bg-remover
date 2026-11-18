@@ -20,7 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
-RUN wget -q "https://github.com/microsoft/onnxruntime/releases/download/v${ONNXRUNTIME_VERSION}/onnxruntime-linux-x64-${ONNXRUNTIME_VERSION}.tgz" \
+RUN wget -q "https://github.com/artisan-build/onnxruntime-mirror/releases/download/v${ONNXRUNTIME_VERSION}/onnxruntime-linux-x64-${ONNXRUNTIME_VERSION}.tgz" \
     && tar -xzf "onnxruntime-linux-x64-${ONNXRUNTIME_VERSION}.tgz" \
     && mkdir -p /opt/onnxruntime/include/onnxruntime /opt/onnxruntime/lib \
     && cp -r "onnxruntime-linux-x64-${ONNXRUNTIME_VERSION}/include/"* /opt/onnxruntime/include/onnxruntime/ \

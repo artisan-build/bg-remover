@@ -182,7 +182,7 @@ jobs:
             wget https://github.com/artisan-build/bg-remover/releases/download/${{ steps.version.outputs.tag }}/bg-remover-ubuntu-x86_64
 
             # Linux also needs the arch-matching ONNX Runtime 1.19.2 library.
-            # Download one from https://github.com/microsoft/onnxruntime/releases/tag/v1.19.2:
+            # Download one from https://github.com/artisan-build/onnxruntime-mirror/releases/tag/v1.19.2:
             # - onnxruntime-linux-x64-1.19.2.tgz for bg-remover-ubuntu-x86_64
             # - onnxruntime-linux-aarch64-1.19.2.tgz for bg-remover-linux-arm64
             # Then place libonnxruntime.so.1 next to the binary or under ./lib/.
